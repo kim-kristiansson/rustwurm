@@ -1,10 +1,7 @@
-mod map;
-mod entities;
-mod game;
 
 use std::io::{self, Write};
 
-use game::{Game, PlayerCommand};
+use rustwurm::{Game, PlayerCommand};
 
 fn main() {
     let mut game = Game::new();
