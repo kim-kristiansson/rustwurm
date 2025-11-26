@@ -17,9 +17,9 @@ impl Game {
         let player = Player::new(5, 5);
 
         let monsters = vec![
-            Monster::new(10, 5, "Rat"),
-            Monster::new(15, 8, "Orc"),
-            Monster::new(20, 3, "Dragon"),
+            Monster::new(10, 5, "Rat", 5),
+            Monster::new(15, 8, "Orc", 20),
+            Monster::new(20, 3, "Dragon", 100),
         ];
 
         let npcs = vec![
@@ -40,7 +40,7 @@ impl Game {
         self.map.draw(&self.player, &self.monsters, &self.npcs);
 
         println!();
-        println!("Player HP: {}", self.player.hp);
+        println!("HP: {}   Level: {}   XP: {}", self.player.hp, self.player.lvl, self.player.xp);
         println!("Last: {}", self.last_message);
     }
 
@@ -63,7 +63,7 @@ impl Game {
             (0, -1), (1, -1),
             (-1, 0), (1, 0),
             (-1, 1), (0, 1),
-            (1, 1),
+            (1, 1)
         ];
         let dmg = 10;
 
@@ -76,8 +76,14 @@ impl Game {
             self.monsters[index].hp -= dmg;
 
             if self.monsters[index].hp <= 0 {
+                let xp_gain = self.monsters[index].xp_reward;
+                let name = self.monsters[index].name;
+                self.player.xp += xp_gain;
+
                 self.monsters.remove(index);
-                self.last_message = format!("You killed the {}!", name);
+                self.last_message = format!("You killed the {} and gained {} XP!", name, xp_gain);
+
+                self.check_lvl_up();
             } else {
                 self.last_message = format!("You hit the {} for {} damage.", name, dmg);
             }
@@ -118,6 +124,18 @@ impl Game {
                 self.player.hp -= dmg;
                 self.last_message = format!("The {} hits you for {} damage.", monster.name, dmg);
             }
+        }
+    }
+
+    fn check_lvl_up(&mut self) {
+        let required_xp = self.player.lvl * 20;
+        if self.player.xp >= required_xp {
+            self.player.lvl += 1;
+            self.player.hp = 100;
+            self.last_message = format!(
+                "You advanced to level {}!",
+                self.player.lvl
+            )
         }
     }
 

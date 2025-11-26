@@ -4,11 +4,19 @@ pub struct Player {
     pub x: i32,
     pub y: i32,
     pub hp: i32,
+    pub lvl: i32,
+    pub xp: i32
 }
 
 impl Player {
     pub fn new(x: i32, y: i32) -> Self {
-        Self { x, y, hp: 100 }
+        Self {
+            x,
+            y,
+            hp: 100,
+            lvl: 1,
+            xp: 0
+        }
     }
 
     pub fn try_move(&mut self, dx: i32, dy: i32, map: &Map) {
@@ -27,15 +35,17 @@ pub struct Monster {
     pub y: i32,
     pub hp: i32,
     pub name: &'static str,
+    pub xp_reward: i32
 }
 
 impl Monster {
-    pub fn new(x: i32, y: i32, name: &'static str) -> Self {
+    pub fn new(x: i32, y: i32, name: &'static str, xp_reward: i32) -> Self {
         Self {
             x,
             y,
             hp: 30,
             name,
+            xp_reward
         }
     }
 }
