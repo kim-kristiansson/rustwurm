@@ -75,11 +75,12 @@ impl Map {
 struct Player {
     x: i32,
     y: i32,
+    hp: i32
 }
 
 impl Player {
     fn new(x: i32, y: i32) -> Self {
-        Self { x, y }
+        Self { x, y, hp: 100 }
     }
 
     fn try_move(&mut self, dx: i32, dy: i32, map: &Map) {
@@ -96,11 +97,18 @@ impl Player {
 struct Monster {
     x: i32,
     y: i32,
+    hp: i32,
+    name: &'static str
 }
 
 impl Monster {
-    fn new(x: i32, y: i32) -> Self {
-        Self { x, y }
+    fn new(x: i32, y: i32, name: &'static str) -> Self {
+        Self {
+            x,
+            y,
+            hp: 30,
+            name,
+        }
     }
 }
 
@@ -120,6 +128,7 @@ struct Game {
     player: Player,
     monsters: Vec<Monster>,
     npcs: Vec<Npc>,
+    last_message: String
 }
 
 impl Game {
@@ -128,9 +137,9 @@ impl Game {
         let player = Player::new(5, 5);
 
         let monsters = vec![
-            Monster::new(10, 5),
-            Monster::new(15, 8),
-            Monster::new(20, 3)
+            Monster::new(10, 5, "Rat"),
+            Monster::new(15, 8, "Orc"),
+            Monster::new(20, 3, "Dragon")
         ];
 
         let npcs = vec![
@@ -142,12 +151,17 @@ impl Game {
             map,
             player,
             monsters,
-            npcs
+            npcs,
+            last_message: String::from("Welcome to Rustwurm!")
         }
     }
 
     fn draw(&self) {
         self.map.draw(&self.player, &self.monsters, &self.npcs);
+
+        println!();
+        println!("Player HP: {}", self.player.hp);
+        println!("Last: {}", self.last_message);
     }
 
     fn handle_input(&mut self, cmd: char) -> bool {
@@ -156,12 +170,37 @@ impl Game {
             's' | 'S' => self.player.try_move(0, 1, &self.map),
             'a' | 'A' => self.player.try_move(-1, 0, &self.map),
             'd' | 'D' => self.player.try_move(1, 0, &self.map),
-            'k' | 'K' => attack(&self.player, &mut self.monsters),
+            'k' | 'K' => self.attack(),
             'q' | 'Q' => return false,
             _ => {}
         }
 
         true
+    }
+
+    fn attack(&mut self) {
+        let directions = [(0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
+        let dmg = 10;
+
+        if let Some(index) = self.monsters.iter().position(|m| {
+            directions
+                .iter()
+                .any(|(dx, dy)| self.player.x + dx == m.x && self.player.y + dy == m.y)
+        }) {
+            let name = self.monsters[index].name;
+            self.monsters[index].hp -= dmg;
+
+            if self.monsters[index].hp <= 0 {
+                self.monsters.remove(index);
+                self.last_message = format!("You killed the {}!", name);
+            }
+            else {
+                self.last_message = format!("You hit the {} for {} damage.", name, dmg);
+            }
+        }
+        else{
+            self.last_message = "You swing at the air.".to_string();
+        }
     }
 
     fn run(&mut self) {
@@ -186,19 +225,6 @@ impl Game {
                 break
             }
         }
-    }
-}
-
-fn attack(player: &Player, monsters: &mut Vec<Monster>) {
-    // slå åt ett håll runt spelaren – om något monster står där försvinner det
-    let directions = [(0, -1), (0, 1), (-1, 0), (1, 0)];
-
-    if let Some(index) = monsters.iter().position(|m| {
-        directions
-            .iter()
-            .any(|(dx, dy)| player.x + dx == m.x && player.y + dy == m.y)
-    }) {
-        monsters.remove(index);
     }
 }
 
