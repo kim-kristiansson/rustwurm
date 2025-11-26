@@ -13,7 +13,7 @@ fn main() {
 
         game.draw();
 
-        if game.is_player_dead() {
+        if game.is_player_dead(0) {
             println!();
             println!("You died!");
             break;

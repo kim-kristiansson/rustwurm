@@ -10,7 +10,7 @@ pub enum PlayerCommand {
 
 pub struct Game {
     map: Map,
-    player: Player,
+    players: Vec<Player>,
     monsters: Vec<Monster>,
     npcs: Vec<Npc>,
     last_message: String,
@@ -21,11 +21,11 @@ impl Game {
         const START_MAP: &str = include_str!("./maps/start.map");
 
         let (map, (px, py), monsters, npcs) = Map::from_ascii(START_MAP);
-        let player = Player::new(px, py);
+        let players = vec![Player::new(px, py)];
 
         Self {
             map,
-            player,
+            players,
             monsters,
             npcs,
             last_message: String::from("Welcome to Rustwurm!"),
@@ -33,14 +33,19 @@ impl Game {
     }
 
     pub fn draw(&self) {
-        self.map.draw(&self.player, &self.monsters, &self.npcs);
+        let player = &self.players[0];
+        self.map.draw(player, &self.monsters, &self.npcs);
 
         println!();
-        println!("HP: {}   Level: {}   XP: {}", self.player.hp, self.player.lvl, self.player.xp);
+        println!("HP: {}   Level: {}   XP: {}", player.hp, player.lvl, player.xp);
         println!("Last: {}", self.last_message);
     }
 
-    fn attack(&mut self) {
+    fn attack(&mut self, player_id: PlayerId) {
+        let Some(player) = self.players.get(player_id as usize) else {
+            return;
+        };
+
         let directions = [
             (0, -1), (1, -1),
             (-1, 0), (1, 0),
@@ -52,7 +57,7 @@ impl Game {
         if let Some(index) = self.monsters.iter().position(|m| {
             directions
                 .iter()
-                .any(|(dx, dy)| self.player.x + dx == m.x && self.player.y + dy == m.y)
+                .any(|(dx, dy)| player.x + dx == m.x && player.y + dy == m.y)
         }) {
             let name = self.monsters[index].name;
             self.monsters[index].hp -= dmg;
@@ -60,12 +65,15 @@ impl Game {
             if self.monsters[index].hp <= 0 {
                 let xp_gain = self.monsters[index].xp_reward;
                 let name = self.monsters[index].name;
-                self.player.xp += xp_gain;
+
+                if let Some(player_mut) = self.players.get_mut(player_id as usize) {
+                    player_mut.xp += xp_gain;
+                }
 
                 self.monsters.remove(index);
                 self.last_message = format!("You killed the {} and gained {} XP!", name, xp_gain);
 
-                self.check_lvl_up();
+                self.check_lvl_up(player_id);
             } else {
                 self.last_message = format!("You hit the {} for {} damage.", name, dmg);
             }
@@ -75,14 +83,32 @@ impl Game {
     }
 
     fn update_monsters(&mut self) {
-        if self.is_player_dead() {
+        if self.players.is_empty() {
             return;
         }
 
         for monster in &mut self.monsters {
+            let mut target_index: Option<usize> = None;
+            let mut best_dist2: i32 = i32::MAX;
 
-            let dx = self.player.x - monster.x;
-            let dy = self.player.y - monster.y;
+            for(i, player) in self.players.iter().enumerate() {
+                let dx = player.x - monster.x;
+                let dy = player.y - monster.y;
+                let dist2 = dx * dx + dy * dy;
+                if dist2 < best_dist2 {
+                    best_dist2 = dist2;
+                    target_index = Some(i);
+                }
+            }
+
+            let Some(target_idx) = target_index else {
+                continue;
+            };
+
+            let target = &self.players[target_idx];
+
+            let dx = target.x - monster.x;
+            let dy = target.y - monster.y;
 
             let step_x = dx.signum();
             let step_y = dy.signum();
@@ -90,36 +116,43 @@ impl Game {
             if step_x != 0 {
                 let new_x = monster.x + step_x;
                 if self.map.is_walkable(new_x, monster.y)
-                    && !(new_x == self.player.x && monster.y == self.player.y)
+                    && !self.players.iter().any(|p| p.x == new_x && p.y == monster.y)
                 {
                     monster.x = new_x;
                 }
             } else if step_y != 0 {
                 let new_y = monster.y + step_y;
                 if self.map.is_walkable(monster.x, new_y)
-                    && !(monster.x == self.player.x && new_y == self.player.y)
+                    && !self.players.iter().any(|p| p.x == monster.x && p.y == monster.y)
                 {
                     monster.y = new_y;
                 }
             }
 
-            let dist_x = (self.player.x - monster.x).abs();
-            let dist_y = (self.player.y - monster.y).abs();
+            let target = &mut self.players[target_idx];
+            let dist_x = (target.x - monster.x).abs();
+            let dist_y = (target.y - monster.y).abs();
 
             if dist_x <= 1 && dist_y <= 1 {
                 let dmg = 5;
-                self.player.hp -= dmg;
+                target.hp -= dmg;
                 self.last_message = format!("The {} hits you for {} damage.", monster.name, dmg);
             }
         }
     }
 
-    pub fn is_player_dead(&self) -> bool {
-        self.player.hp <= 0
+    pub fn is_player_dead(&self, player_id: PlayerId) -> bool {
+        self.players
+            .get(player_id as usize)
+            .map(|p| p.hp <= 0)
+            .unwrap_or(true)
     }
 
-    pub fn player_hp(&self) -> i32 {
-        self.player.hp
+    pub fn player_hp(&self, player_id: PlayerId) -> i32 {
+        self.players
+            .get(player_id as usize)
+            .map(|p| p.hp)
+            .unwrap_or(0)
     }
 
     pub fn monster_count(&self) -> i32 {
@@ -129,27 +162,27 @@ impl Game {
     fn apply_player_command(&mut self, cmd: PlayerCommand) {
         match cmd {
             PlayerCommand::Move(player_id, dx, dy) => {
-                if player_id == 0 {
-                    self.player.try_move(dx, dy, &self.map);
+                if let Some(player) = self.players.get_mut(player_id as usize) {
+                    player.try_move(dx, dy, &self.map);
                 }
             }
             PlayerCommand::Attack(player_id) => {
-                if player_id == 0 {
-                    self.attack();
-                }
+                self.attack(player_id);
             }
         }
     }
 
-    fn check_lvl_up(&mut self) {
-        let required_xp = self.player.lvl * 20;
-        if self.player.xp >= required_xp {
-            self.player.lvl += 1;
-            self.player.hp = 100;
-            self.last_message = format!(
-                "You advanced to level {}!",
-                self.player.lvl
-            )
+    fn check_lvl_up(&mut self, player_id: PlayerId) {
+        if let Some(player) = self.players.get_mut(player_id as usize) {
+            let required_xp = player.lvl * 20;
+            if player.xp >= required_xp {
+                player.lvl += 1;
+                player.hp = 100;
+                self.last_message = format!(
+                    "You advanced to level {}!",
+                    player.lvl
+                )
+            }
         }
     }
 

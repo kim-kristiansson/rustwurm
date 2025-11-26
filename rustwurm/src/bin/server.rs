@@ -19,7 +19,7 @@ fn main() {
 
             println!(
                 "[SERVER] Tick. Player HP: {}   Monsters: {}",
-                game.player_hp(),
+                game.player_hp(0),
                 game.monster_count()
             );
         }
