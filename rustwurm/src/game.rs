@@ -1,9 +1,11 @@
 use crate::map::Map;
 use crate::entities::{Player, Monster, Npc};
 
+pub type PlayerId = u32;
+
 pub enum PlayerCommand {
-    Move(i32, i32),
-    Attack
+    Move(PlayerId, i32, i32),
+    Attack(PlayerId)
 }
 
 pub struct Game {
@@ -126,11 +128,15 @@ impl Game {
 
     fn apply_player_command(&mut self, cmd: PlayerCommand) {
         match cmd {
-            PlayerCommand::Move(dx, dy) => {
-                self.player.try_move(dx, dy, &self.map);
+            PlayerCommand::Move(player_id, dx, dy) => {
+                if player_id == 0 {
+                    self.player.try_move(dx, dy, &self.map);
+                }
             }
-            PlayerCommand::Attack => {
-                self.attack();
+            PlayerCommand::Attack(player_id) => {
+                if player_id == 0 {
+                    self.attack();
+                }
             }
         }
     }

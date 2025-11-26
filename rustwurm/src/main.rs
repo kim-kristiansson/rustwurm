@@ -30,11 +30,11 @@ fn main() {
         let cmd_char = input.chars().next().unwrap_or('\n');
 
         let cmd = match cmd_char {
-            'w' | 'W' => Some(PlayerCommand::Move(0, -1)),
-            's' | 'S' => Some(PlayerCommand::Move(0, 1)),
-            'a' | 'A' => Some(PlayerCommand::Move(-1, 0)),
-            'd' | 'D' => Some(PlayerCommand::Move(1, 0)),
-            'k' | 'K' => Some(PlayerCommand::Attack),
+            'w' | 'W' => Some(PlayerCommand::Move(0, 0, -1)),
+            's' | 'S' => Some(PlayerCommand::Move(0, 0, 1)),
+            'a' | 'A' => Some(PlayerCommand::Move(0, -1, 0)),
+            'd' | 'D' => Some(PlayerCommand::Move(0, 1, 0)),
+            'k' | 'K' => Some(PlayerCommand::Attack(0)),
             'q' | 'Q' => break,
             _ => None,
         };
