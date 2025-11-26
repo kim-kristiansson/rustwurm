@@ -115,65 +115,94 @@ impl Npc {
     }
 }
 
+struct Game {
+    map: Map,
+    player: Player,
+    monsters: Vec<Monster>,
+    npcs: Vec<Npc>,
+}
+
+impl Game {
+    fn new() -> Self {
+        let map = Map::new(30, 12);
+        let player = Player::new(5, 5);
+
+        let monsters = vec![
+            Monster::new(10, 5),
+            Monster::new(15, 8),
+            Monster::new(20, 3)
+        ];
+
+        let npcs = vec![
+            Npc::new(25, 8),
+            Npc::new(7, 10),
+        ];
+
+        Self{
+            map,
+            player,
+            monsters,
+            npcs
+        }
+    }
+
+    fn draw(&self) {
+        self.map.draw(&self.player, &self.monsters, &self.npcs);
+    }
+
+    fn handle_input(&mut self, cmd: char) -> bool {
+        match cmd {
+            'w' | 'W' => self.player.try_move(0, -1, &self.map),
+            's' | 'S' => self.player.try_move(0, 1, &self.map),
+            'a' | 'A' => self.player.try_move(-1, 0, &self.map),
+            'd' | 'D' => self.player.try_move(1, 0, &self.map),
+            'k' | 'K' => attack(&self.player, &mut self.monsters),
+            'q' | 'Q' => return false,
+            _ => {}
+        }
+
+        true
+    }
+
+    fn run(&mut self) {
+        println!("Use WASD to move, 'k' to attack, 'q' to quit.");
+
+        loop {
+            print!("\x1B[2J\x1B[1;1H");
+
+            self.draw();
+
+            print!("Command (w/a/s/d/k/q): ");
+            io::stdout().flush().unwrap();
+
+            let mut input = String::new();
+            if io::stdin().read_line(&mut input).is_err() {
+                break;
+            }
+
+            let cmd = input.chars().next().unwrap_or('\n');
+
+            if(!self.handle_input(cmd)) {
+                break
+            }
+        }
+    }
+}
 
 fn attack(player: &Player, monsters: &mut Vec<Monster>) {
     // slå åt ett håll runt spelaren – om något monster står där försvinner det
-    // let directions = [(0, -1), (0, 1), (-1, 0), (1, 0)];
-    let direction_up = (0,  -1);
+    let directions = [(0, -1), (0, 1), (-1, 0), (1, 0)];
 
     if let Some(index) = monsters.iter().position(|m| {
-        //directions
-        //    .iter()
-        //    .any(|(dx, dy)| player.x + dx == m.x && player.y + dy == m.y)
-
-        player.x + direction_up.0 == m.x && player.y + direction_up.1 == m.y
+        directions
+            .iter()
+            .any(|(dx, dy)| player.x + dx == m.x && player.y + dy == m.y)
     }) {
         monsters.remove(index);
     }
 }
 
 fn main() {
-    let map = Map::new(30, 12);
-    let mut player = Player::new(5, 5);
-
-    // Några monsters
-    let mut monsters = vec![
-        Monster::new(10, 5),
-        Monster::new(15, 8),
-        Monster::new(20, 3),
-    ];
-
-    let mut npcs = vec![
-        Npc::new(25, 8),
-        Npc::new(7, 10),
-    ];
-
-    println!("Use WASD to move, 'k' to attack, 'q' to quit.");
-
-    loop {
-        // Rensa skärmen någorlunda
-        print!("\x1B[2J\x1B[1;1H");
-
-        map.draw(&player, &monsters, &npcs);
-
-        print!("Command (w/a/s/d/k/q): ");
-        io::stdout().flush().unwrap();
-
-        let mut input = String::new();
-        if io::stdin().read_line(&mut input).is_err() {
-            break;
-        }
-
-        let cmd = input.chars().next().unwrap_or('\n');
-
-        match cmd {
-            'w' => player.try_move(0, -1, &map),
-            's' => player.try_move(0, 1, &map),
-            'a' => player.try_move(-1, 0, &map),
-            'd' => player.try_move(1, 0, &map),
-            'k' => attack(&player, &mut monsters),
-            'q' => break,
-            _ => {}
-        }
-    }
+    let mut game = Game::new();
+    game.run();
 }
