@@ -84,7 +84,12 @@ impl Game {
     }
 
     fn update_monsters(&mut self) {
+        if self.is_player_dead() {
+            return;
+        }
+
         for monster in &mut self.monsters {
+
             let dx = self.player.x - monster.x;
             let dy = self.player.y - monster.y;
 
@@ -120,6 +125,14 @@ impl Game {
 
     pub fn is_player_dead(&self) -> bool {
         self.player.hp <= 0
+    }
+
+    pub fn player_hp(&self) -> i32 {
+        self.player.hp
+    }
+
+    pub fn monster_count(&self) -> i32 {
+        self.monsters.len() as i32
     }
 
     fn apply_player_command(&mut self, cmd: PlayerCommand) {
