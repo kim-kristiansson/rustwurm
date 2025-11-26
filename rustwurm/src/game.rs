@@ -3,6 +3,11 @@ use std::io::{self, Write};
 use crate::map::Map;
 use crate::entities::{Player, Monster, Npc};
 
+pub enum PlayerCommand {
+    Move(i32, i32),
+    Attack
+}
+
 pub struct Game {
     map: Map,
     player: Player,
@@ -42,20 +47,6 @@ impl Game {
         println!();
         println!("HP: {}   Level: {}   XP: {}", self.player.hp, self.player.lvl, self.player.xp);
         println!("Last: {}", self.last_message);
-    }
-
-    fn handle_input(&mut self, cmd: char) -> bool {
-        match cmd {
-            'w' | 'W' => self.player.try_move(0, -1, &self.map),
-            's' | 'S' => self.player.try_move(0, 1, &self.map),
-            'a' | 'A' => self.player.try_move(-1, 0, &self.map),
-            'd' | 'D' => self.player.try_move(1, 0, &self.map),
-            'k' | 'K' => self.attack(),
-            'q' | 'Q' => return false,
-            _ => {}
-        }
-
-        true
     }
 
     fn attack(&mut self) {
@@ -127,6 +118,21 @@ impl Game {
         }
     }
 
+    pub fn is_player_dead(&self) -> bool {
+        self.player.hp <= 0
+    }
+
+    fn apply_player_command(&mut self, cmd: PlayerCommand) {
+        match cmd {
+            PlayerCommand::Move(dx, dy) => {
+                self.player.try_move(dx, dy, &self.map);
+            }
+            PlayerCommand::Attack => {
+                self.attack();
+            }
+        }
+    }
+
     fn check_lvl_up(&mut self) {
         let required_xp = self.player.lvl * 20;
         if self.player.xp >= required_xp {
@@ -139,35 +145,11 @@ impl Game {
         }
     }
 
-    pub fn run(&mut self) {
-        println!("Use WASD to move, 'k' to attack, 'q' to quit.");
-
-        loop {
-            print!("\x1B[2J\x1B[1;1H");
-
-            self.draw();
-
-            if self.player.hp <= 0 {
-                println!();
-                println!("You died!");
-                break;
-            }
-
-            print!("Command (w/a/s/d/k/q): ");
-            io::stdout().flush().unwrap();
-
-            let mut input = String::new();
-            if io::stdin().read_line(&mut input).is_err() {
-                break;
-            }
-
-            let cmd = input.chars().next().unwrap_or('\n');
-
-            if !self.handle_input(cmd) {
-                break;
-            }
-
-            self.update_monsters();
+    pub fn tick(&mut self, cmd: Option<PlayerCommand>) {
+        if let Some(cmd) = cmd {
+            self.apply_player_command(cmd);
         }
+
+        self.update_monsters();
     }
 }
