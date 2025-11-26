@@ -1,5 +1,3 @@
-use std::io::{self, Write};
-
 use crate::map::Map;
 use crate::entities::{Player, Monster, Npc};
 
