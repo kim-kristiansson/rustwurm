@@ -203,6 +203,39 @@ impl Game {
         }
     }
 
+    fn update_monsters(&mut self) {
+        for monster in &mut self.monsters{
+            let dx = self.player.x - monster.x;
+            let dy = self.player.y - monster.y;
+
+            let step_x = dx.signum();
+            let step_y = dy.signum();
+
+            if step_x != 0 {
+                let new_x = monster.x + step_x;
+                if self.map.is_walkable(new_x, monster.y) && !(new_x == self.player.x && monster.y == self.player.y) {
+                    monster.x = new_x;
+                }
+            }
+            else if step_y != 0 {
+                let new_y = monster.y + step_y;
+                if self.map.is_walkable(monster.x, new_y) && !(monster.x == self.player.x && new_y == self.player.y)
+                {
+                    monster.y = new_y;
+                }
+            }
+
+            let dist_x = (self.player.x - monster.x).abs();
+            let dist_y = (self.player.y - monster.y).abs();
+
+            if dist_x <= 1 && dist_y <= 1 {
+                let dmg = 5;
+                self.player.hp -= dmg;
+                self.last_message = format!("The {} hits you for {} damage.", monster.name, dmg);
+            }
+        }
+    }
+
     fn run(&mut self) {
         println!("Use WASD to move, 'k' to attack, 'q' to quit.");
 
@@ -210,6 +243,12 @@ impl Game {
             print!("\x1B[2J\x1B[1;1H");
 
             self.draw();
+
+            if self.player.hp <= 0 {
+                println!();
+                println!("You died!");
+                break;
+            }
 
             print!("Command (w/a/s/d/k/q): ");
             io::stdout().flush().unwrap();
@@ -224,6 +263,8 @@ impl Game {
             if(!self.handle_input(cmd)) {
                 break
             }
+
+            self.update_monsters();
         }
     }
 }
