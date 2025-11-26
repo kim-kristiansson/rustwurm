@@ -16,19 +16,10 @@ pub struct Game {
 
 impl Game {
     pub fn new() -> Self {
-        let map = Map::new(30, 12);
-        let player = Player::new(5, 5);
+        const START_MAP: &str = include_str!("./maps/start.map");
 
-        let monsters = vec![
-            Monster::new(10, 5, "Rat", 5),
-            Monster::new(15, 8, "Orc", 20),
-            Monster::new(20, 3, "Dragon", 100),
-        ];
-
-        let npcs = vec![
-            Npc::new(25, 8),
-            Npc::new(7, 10),
-        ];
+        let (map, (px, py), monsters, npcs) = Map::from_ascii(START_MAP);
+        let player = Player::new(px, py);
 
         Self {
             map,

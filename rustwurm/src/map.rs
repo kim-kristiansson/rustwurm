@@ -50,11 +50,68 @@ impl Map {
         }
     }
 
+
+    pub fn from_ascii(ascii: &str) -> (Self, (i32, i32), Vec<Monster>, Vec<Npc>) {
+        let lines: Vec<&str> = ascii
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .collect();
+
+        let height = lines.len();
+        let width = lines.first().map(|l| l.chars().count()).unwrap_or(0);
+
+        let mut tiles = vec![Tile::Floor; width * height];
+        let mut player_pos = (1_i32, 1_i32);
+        let mut monsters = Vec::new();
+        let mut npcs = Vec::new();
+
+        for (y, line) in lines.iter().enumerate() {
+            for (x, ch) in line.chars().enumerate() {
+                let idx = y * width + x;
+                let (x_i32, y_i32) = (x as i32, y as i32);
+
+                match ch {
+                    '#' => {
+                        tiles[idx] = Tile::Wall;
+                    }
+                    'P' => {
+                        tiles[idx] = Tile::Floor;
+                        player_pos = (x_i32, y_i32);
+                    }
+                    'D' => {
+                        tiles[idx] = Tile::Floor;
+                        monsters.push(Monster::new(x_i32, y_i32, "Monster", 20));
+                    }
+                    'N' => {
+                        tiles[idx] = Tile::Floor;
+                        npcs.push(Npc::new(x_i32, y_i32));
+                    }
+                    '.' | ' ' => {
+                        tiles[idx] = Tile::Floor;
+                    }
+                    _ => {
+                        tiles[idx] = Tile::Floor;
+                    }
+                }
+            }
+        }
+
+        let map = Map {
+            width,
+            height,
+            tiles,
+        };
+
+        (map, player_pos, monsters, npcs)
+    }
+
+
+
     pub fn draw(&self, player: &Player, monsters: &[Monster], npcs: &[Npc]) {
         for y in 0..self.height as i32 {
             for x in 0..self.width as i32 {
                 if player.x == x && player.y == y {
-                    print!("P"); // spelaren
+                    print!("P"); // player
                 } else if monsters.iter().any(|m| m.x == x && m.y == y) {
                     print!("D"); // monster
                 } else if npcs.iter().any(|n| n.x == x && n.y == y) {
