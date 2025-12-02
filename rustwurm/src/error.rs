@@ -15,12 +15,12 @@ pub enum GameError {
 #[derive(Error, Debug)]
 pub enum ProtocolError {
     #[error("IO error: {0}")]
-    Io(#[from] io::Error),
+    Io(#[from] std::io::Error),
 
     #[error("Invalid packet: {0}")]
     InvalidPacket(String),
 
-    #[error("Unknown opcode: {0:#06x")]
+    #[error("Unknown opcode: {0:#06x}")]
     UnknownOpcode(u16),
 
     #[error("Packet too short: expected {expected}, got {actual}")]

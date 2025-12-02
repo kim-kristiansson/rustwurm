@@ -2,15 +2,9 @@ use std::collections::HashMap;
 
 use crate::world::{Map, MapSpawns, Position};
 use super::player::{Player, PlayerId};
-use super::monster::{Monster, MonsterId, Npc};
+use super::monster::{Monster, MonsterId};
+use super::npc::{Npc};
 use super::messages::{ClientMessage, ServerMessage};
-
-/// Direction offsets for adjacent tile checks
-const ADJACENT_OFFSETS: [(i32, i32); 8] = [
-    (-1, -1), (0, -1), (1, -1),
-    (-1,  0),          (1,  0),
-    (-1,  1), (0,  1), (1,  1),
-];
 
 /// Commands that can be issued to the game engine (for local play)
 #[derive(Debug, Clone)]
@@ -135,22 +129,28 @@ impl Game {
     }
 
     fn move_player(&mut self, player_id: PlayerId, dx: i32, dy: i32) {
-        if let Some(player) = self.players.get_mut(&player_id) {
+        let moved = {
+            let Some(player) = self.players.get_mut(&player_id) else {
+                return;
+            };
             if player.try_move(dx, dy, &self.map) {
-                self.emit(GameEvent::PlayerMoved {
-                    player_id,
-                    x: player.pos.x,
-                    y: player.pos.y,
-                });
+                Some((player.pos.x, player.pos.y))
+            } else {
+                None
             }
+        };
+
+        if let Some((x, y)) = moved {
+            self.emit(GameEvent::PlayerMoved { player_id, x, y });
         }
     }
 
     fn player_attack(&mut self, player_id: PlayerId) {
-        let Some(player) = self.players.get(&player_id) else {
-            return;
+        // Get player position (immutable borrow ends here)
+        let player_pos = match self.players.get(&player_id) {
+            Some(p) => p.pos,
+            None => return,
         };
-        let player_pos = player.pos;
 
         // Find adjacent monster
         let target = self.monsters.iter()
@@ -164,9 +164,13 @@ impl Game {
             return;
         };
 
+        // Apply damage and check if dead
         let damage = 10;
-        let monster = self.monsters.get_mut(&monster_id).unwrap();
-        monster.take_damage(damage);
+        let (is_dead, xp) = {
+            let monster = self.monsters.get_mut(&monster_id).unwrap();
+            monster.take_damage(damage);
+            (monster.is_dead(), monster.xp_reward)
+        };
 
         self.emit(GameEvent::PlayerAttacked {
             player_id,
@@ -174,26 +178,27 @@ impl Game {
             damage,
         });
 
-        if monster.is_dead() {
-            let xp = monster.xp_reward;
-            let name = monster.name.clone();
+        if is_dead {
             self.monsters.remove(&monster_id);
 
-            if let Some(player) = self.players.get_mut(&player_id) {
-                let leveled_up = player.gain_xp(xp);
-
-                self.emit(GameEvent::MonsterKilled {
-                    player_id,
-                    monster_id,
-                    xp_gained: xp,
-                });
-
-                if leveled_up {
-                    self.emit(GameEvent::PlayerLevelUp {
-                        player_id,
-                        new_level: player.level,
-                    });
+            let leveled_up = {
+                match self.players.get_mut(&player_id) {
+                    Some(player) => Some((player.gain_xp(xp), player.level)),
+                    None => None,
                 }
+            };
+
+            self.emit(GameEvent::MonsterKilled {
+                player_id,
+                monster_id,
+                xp_gained: xp,
+            });
+
+            if let Some((true, new_level)) = leveled_up {
+                self.emit(GameEvent::PlayerLevelUp {
+                    player_id,
+                    new_level,
+                });
             }
         }
     }
@@ -231,7 +236,7 @@ impl Game {
 
             let new_pos = if dx != 0 {
                 let candidate = monster.pos.offset(dx, 0);
-                if self.map.is_position_walkable(candidate)
+                if self.map.is_walkable(candidate)
                     && !self.players.values().any(|p| p.pos == candidate)
                 {
                     Some(candidate)
@@ -245,7 +250,7 @@ impl Game {
             let new_pos = new_pos.or_else(|| {
                 if dy != 0 {
                     let candidate = monster.pos.offset(0, dy);
-                    if self.map.is_position_walkable(candidate)
+                    if self.map.is_walkable(candidate)
                         && !self.players.values().any(|p| p.pos == candidate)
                     {
                         Some(candidate)
@@ -271,22 +276,29 @@ impl Game {
 
         // Apply attacks
         for (monster_id, player_id, damage) in monster_attacks {
-            if let Some(player) = self.players.get_mut(&player_id) {
-                player.take_damage(damage);
-
+            let (is_dead, monster_name) = {
                 let monster_name = self.monsters.get(&monster_id)
                     .map(|m| m.name.clone())
                     .unwrap_or_else(|| "Monster".to_string());
 
-                self.emit(GameEvent::PlayerDamaged {
-                    player_id,
-                    damage,
-                    source: monster_name,
-                });
+                let is_dead = if let Some(player) = self.players.get_mut(&player_id) {
+                    player.take_damage(damage);
+                    player.is_dead()
+                } else {
+                    continue;
+                };
 
-                if player.is_dead() {
-                    self.emit(GameEvent::PlayerDied { player_id });
-                }
+                (is_dead, monster_name)
+            };
+
+            self.emit(GameEvent::PlayerDamaged {
+                player_id,
+                damage,
+                source: monster_name,
+            });
+
+            if is_dead {
+                self.emit(GameEvent::PlayerDied { player_id });
             }
         }
     }

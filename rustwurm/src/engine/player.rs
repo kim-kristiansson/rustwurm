@@ -29,7 +29,7 @@ impl Player {
     pub fn try_move(&mut self, dx: i32, dy: i32, map: &Map) -> bool {
         let new_pos = self.pos.offset(dx, dy);
 
-        if map.is_position_walkable(new_pos) {
+        if map.is_walkable(new_pos) {
             self.pos = new_pos;
             true
         } else {

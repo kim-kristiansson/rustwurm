@@ -1,9 +1,10 @@
 use super::tile::Tile;
 
-#[derive(Clone, Copy, Debug,PartialEq, Eq)]
+/// Represents a position on the map
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Position {
     pub x: i32,
-    pub y: i32
+    pub y: i32,
 }
 
 impl Position {
@@ -14,7 +15,7 @@ impl Position {
     pub fn offset(&self, dx: i32, dy: i32) -> Self {
         Self {
             x: self.x + dx,
-            y: self.y + dy
+            y: self.y + dy,
         }
     }
 
@@ -31,8 +32,9 @@ impl Position {
     }
 }
 
+/// Spawn data parsed from map files
 #[derive(Debug)]
-pub struct MapSpawns{
+pub struct MapSpawns {
     pub player_start: Position,
     pub monsters: Vec<Position>,
     pub npcs: Vec<Position>,
@@ -48,6 +50,7 @@ impl Map {
     pub fn new(width: usize, height: usize) -> Self {
         let mut tiles = vec![Tile::Floor; width * height];
 
+        // Create border walls
         for x in 0..width {
             tiles[x] = Tile::Wall;
             tiles[x + (height - 1) * width] = Tile::Wall;
@@ -62,31 +65,28 @@ impl Map {
 
     fn index(&self, x: i32, y: i32) -> Option<usize> {
         if x < 0 || y < 0 {
-            None
+            return None;
         }
         let (ux, uy) = (x as usize, y as usize);
         if ux >= self.width || uy >= self.height {
             None
-        }
-        else {
+        } else {
             Some(uy * self.width + ux)
         }
     }
 
     pub fn get_tile(&self, pos: Position) -> Option<Tile> {
-        self.index(pos.x, pos.y).map(|i| self.tiles[i])
+        self.index(pos.x, pos.y).map(|idx| self.tiles[idx])
     }
 
     pub fn is_walkable(&self, pos: Position) -> bool {
         self.index(pos.x, pos.y)
-            .map(|i| self.tiles[i].is_walkable())
+            .map(|idx| self.tiles[idx].is_walkable())
             .unwrap_or(false)
     }
 
-    pub fn is_position_walkable(&self, pos: Position) -> bool {
-        self.is_walkable(pos.x, pos.y)
-    }
-
+    /// Parse a map from ASCII art format
+    /// Returns the map and spawn information
     pub fn from_ascii(ascii: &str) -> (Self, MapSpawns) {
         let lines: Vec<&str> = ascii
             .lines()
@@ -158,7 +158,7 @@ mod tests {
     #[test]
     fn test_map_walkable() {
         let map = Map::new(10, 10);
-        assert!(!map.is_walkable(0, 0)); // corner wall
-        assert!(map.is_walkable(5, 5));  // center floor
+        assert!(!map.is_walkable(Position::new(0, 0))); // corner wall
+        assert!(map.is_walkable(Position::new(5, 5)));  // center floor
     }
 }
