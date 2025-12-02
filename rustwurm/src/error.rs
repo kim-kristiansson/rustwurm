@@ -5,7 +5,7 @@ pub enum GameError {
     #[error("Player {0} not found")]
     PlayerNotFound(String),
 
-    #[error("Invalid position ({x}, {y}")]
+    #[error("Invalid position ({x}, {y})")]
     InvalidPosition { x: i32, y: i32 },
 
     #[error("Map error: {0}")]
@@ -25,6 +25,9 @@ pub enum ProtocolError {
 
     #[error("Packet too short: expected {expected}, got {actual}")]
     PacketTooShort { expected: usize, actual: usize },
+
+    #[error("Connection closed")]
+    ConnectionClosed,
 }
 
 #[derive(Error, Debug)]
@@ -32,7 +35,7 @@ pub enum ServerError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("Protocol error: {0:}")]
+    #[error("Protocol error: {0}")]
     Protocol(#[from] ProtocolError),
 
     #[error("Game error: {0}")]
