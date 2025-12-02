@@ -58,10 +58,10 @@ impl Codec {
             ProtocolError::InvalidPacket("Game packet before login".to_string())
         })?;
 
-        let Some(opcode) = ClientOpcode::from_u16(opcode_raw) else {
+        let Some(opcode) = ClientOpcode::from_u8(opcode_raw) else {
             // Unknown opcode - log and skip
             eprintln!(
-                "[v1.03] Unknown client opcode: {:#06x}, payload_len={}",
+                "[v1.03] Unknown client opcode: {:#04x}, payload_len={}",
                 opcode_raw, payload.len()
             );
             return Ok(None);
@@ -82,15 +82,21 @@ impl Codec {
 
             // Stop/cancel
             ClientOpcode::StopWalk | ClientOpcode::CancelAction => {
-                // No direct engine message, just acknowledge
-                return Ok(None);
+                ClientMessage::Cancel { player_id }
             }
 
             // Turn commands (facing direction, no movement)
-            ClientOpcode::TurnNorth | ClientOpcode::TurnEast |
-            ClientOpcode::TurnSouth | ClientOpcode::TurnWest => {
-                // TODO: Add Turn message to engine
-                return Ok(None);
+            ClientOpcode::TurnNorth => {
+                ClientMessage::Turn { player_id, direction: crate::engine::Direction::North }
+            }
+            ClientOpcode::TurnEast => {
+                ClientMessage::Turn { player_id, direction: crate::engine::Direction::East }
+            }
+            ClientOpcode::TurnSouth => {
+                ClientMessage::Turn { player_id, direction: crate::engine::Direction::South }
+            }
+            ClientOpcode::TurnWest => {
+                ClientMessage::Turn { player_id, direction: crate::engine::Direction::West }
             }
 
             // Say something
@@ -102,9 +108,20 @@ impl Codec {
 
             // Attack
             ClientOpcode::Attack => {
+                let target_id = reader.read_u32()?;
+                if target_id == 0 {
+                    // Stop attacking
+                    ClientMessage::Cancel { player_id }
+                } else {
+                    ClientMessage::AttackTarget { player_id, target_id }
+                }
+            }
+
+            // Follow
+            ClientOpcode::Follow => {
                 let _target_id = reader.read_u32()?;
-                // For now, simplified attack (engine will find adjacent target)
-                ClientMessage::Attack { player_id }
+                // TODO: Add Follow message to engine
+                return Ok(None);
             }
 
             // Logout
@@ -112,7 +129,28 @@ impl Codec {
                 ClientMessage::Logout { player_id }
             }
 
-            // Login shouldn't appear here
+            // Auto-walk (path)
+            ClientOpcode::AutoWalk => {
+                // TODO: Parse path and implement auto-walk
+                return Ok(None);
+            }
+
+            // Item interactions
+            ClientOpcode::MoveItem | ClientOpcode::UseItem |
+            ClientOpcode::UseItemWith | ClientOpcode::UseItemOnCreature |
+            ClientOpcode::RotateItem => {
+                // TODO: Parse item location and implement
+                return Ok(None);
+            }
+
+            // Channel operations
+            ClientOpcode::RequestChannels | ClientOpcode::OpenChannel |
+            ClientOpcode::CloseChannel => {
+                // TODO: Implement channels
+                return Ok(None);
+            }
+
+            // Login shouldn't appear here (handled in AwaitingLogin state)
             ClientOpcode::GameLogin => {
                 return Err(ProtocolError::InvalidPacket(
                     "Unexpected login packet in game state".to_string()
@@ -175,7 +213,7 @@ impl ServerCodec for Codec {
 
                 // Send login response sequence
                 vec![
-                    server_packets::login_ok(),
+                    server_packets::login_ok(*player_id),
                     // Example equipped items (backpack, sword, shield)
                     server_packets::equipped_item(0x013D, EquipmentSlot::Backpack),
                     server_packets::equipped_item(0x015A, EquipmentSlot::RightHand),
@@ -193,15 +231,15 @@ impl ServerCodec for Codec {
                 vec![server_packets::info_message(message)]
             }
 
-            ServerMessage::PlayerStats { hp, max_hp, level, xp, .. } => {
+            ServerMessage::PlayerStats { hp, max_hp, level, xp, mana, max_mana, .. } => {
                 vec![server_packets::player_stats(
                     *hp as u16,
                     *max_hp as u16,
                     100, // cap
                     *xp as u32,
                     *level as u16,
-                    100, // mana
-                    100, // max_mana
+                    *mana as u16,
+                    *max_mana as u16,
                 )]
             }
 
@@ -248,6 +286,7 @@ mod tests {
     use super::*;
     use std::io::Cursor;
     use super::super::login::build_login;
+    use super::super::frame::FrameBuilder;
 
     #[test]
     fn test_login_flow() {
@@ -284,4 +323,49 @@ mod tests {
         assert_eq!(codec.state, ConnectionState::InGame);
         assert_eq!(codec.player_id, Some(1));
     }
-}
+
+    #[test]
+    fn test_movement_packet() {
+        let mut codec = Codec::new();
+        codec.player_id = Some(42);
+        codec.state = ConnectionState::InGame;
+
+        // Build a move north packet (opcode 0x65, no payload)
+        let frame = FrameBuilder::with_opcode(0x65).build();
+        let mut data = Vec::new();
+        frame.write_to(&mut data).unwrap();
+
+        // Should be: 01 00 65 (length=1, opcode)
+        assert_eq!(data, vec![0x01, 0x00, 0x65]);
+
+        let mut cursor = Cursor::new(data);
+        let msg = codec.read_message(&mut cursor).unwrap();
+
+        assert!(matches!(msg, Some(ClientMessage::Move { player_id: 42, dx: 0, dy: -1 })));
+    }
+
+    #[test]
+    fn test_say_packet() {
+        let mut codec = Codec::new();
+        codec.player_id = Some(1);
+        codec.state = ConnectionState::InGame;
+
+        // Build a say packet: opcode 0x96, speak_type 0x01, string "Hi"
+        let mut builder = FrameBuilder::with_opcode(0x96);
+        builder.write_u8(0x01); // speak type = say
+        builder.write_string("Hi");
+        let frame = builder.build();
+
+        let mut data = Vec::new();
+        frame.write_to(&mut data).unwrap();
+
+        let mut cursor = Cursor::new(data);
+        let msg = codec.read_message(&mut cursor).unwrap();
+
+        if let Some(ClientMessage::Say { player_id, message }) = msg {
+            assert_eq!(player_id, 1);
+            assert_eq!(message, "Hi");
+        } else {
+            panic!("Expected Say message");
+        }
+    }
