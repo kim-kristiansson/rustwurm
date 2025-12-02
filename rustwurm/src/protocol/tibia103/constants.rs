@@ -115,16 +115,34 @@ impl ClientOpcode {
     }
 }
 
-/// Server → Client opcodes (single byte)
+/// Login Server → Client opcodes (single byte)
+///
+/// These opcodes are used on the login server connection (port 7171).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-pub enum ServerOpcode {
-    /// Login successful (player ID assignment)
-    LoginOk = 0x0A,
-    /// Login failed with reason
-    LoginFailed = 0x14,
-    /// MOTD (message of the day) - used in login server
+pub enum LoginServerOpcode {
+    /// Login error with reason
+    LoginError = 0x0A,
+    /// MOTD (message of the day)
     Motd = 0x14,
+    /// Character list
+    CharacterList = 0x64,
+}
+
+impl LoginServerOpcode {
+    pub fn as_u8(self) -> u8 {
+        self as u8
+    }
+}
+
+/// Game Server → Client opcodes (single byte)
+///
+/// These opcodes are used on the game server connection (port 7172).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum GameServerOpcode {
+    /// Player ID assignment (sent after successful game login)
+    SelfAppear = 0x0A,
     /// Full map data (sent on login/teleport)
     MapDescription = 0x64,
     /// Partial map update (player moved north)
@@ -135,8 +153,6 @@ pub enum ServerOpcode {
     MapSliceSouth = 0x67,
     /// Partial map update (player moved west)
     MapSliceWest = 0x68,
-    /// Text message to display
-    TextMessage = 0xB4,
     /// Add thing to tile
     TileAddThing = 0x6A,
     /// Transform thing on tile
@@ -169,9 +185,11 @@ pub enum ServerOpcode {
     PlayerSkills = 0xA1,
     /// Creature says something
     CreatureSay = 0xAA,
+    /// Text message to display
+    TextMessage = 0xB4,
 }
 
-impl ServerOpcode {
+impl GameServerOpcode {
     pub fn as_u8(self) -> u8 {
         self as u8
     }
