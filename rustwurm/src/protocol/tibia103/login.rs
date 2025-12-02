@@ -89,12 +89,12 @@ pub fn parse_login(frame: &Frame) -> ProtocolResult<LoginCredentials> {
 
 /// Build a login packet (for client implementation)
 pub fn build_login(name: &str, password: &str) -> Frame {
-    FrameBuilder::new()
-        .write_bytes(&LOGIN_MAGIC)
-        .write_u16(PROTOCOL_VERSION)
-        .write_fixed_string(name, LOGIN_NAME_LENGTH)
-        .write_fixed_string(password, LOGIN_PASSWORD_LENGTH)
-        .build()
+    let mut builder = FrameBuilder::new();
+    builder.write_bytes(&LOGIN_MAGIC);
+    builder.write_u16(PROTOCOL_VERSION);
+    builder.write_fixed_string(name, LOGIN_NAME_LENGTH);
+    builder.write_fixed_string(password, LOGIN_PASSWORD_LENGTH);
+    builder.build()
 }
 
 #[cfg(test)]

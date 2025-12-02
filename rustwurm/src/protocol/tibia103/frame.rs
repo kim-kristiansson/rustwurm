@@ -178,7 +178,7 @@ impl FrameBuilder {
     /// Append a length-prefixed string (u16 length + bytes)
     pub fn write_string(&mut self, s: &str) -> &mut Self {
         let bytes = s.as_bytes();
-        self.write_u16(bytes.len() as u16);
+        self.body.extend_from_slice(&(bytes.len() as u16).to_le_bytes());
         self.body.extend_from_slice(bytes);
         self
     }
@@ -199,6 +199,11 @@ impl FrameBuilder {
         self
     }
 
+    /// Consume the body directly (alternative to build for internal use)
+    pub fn into_body(self) -> Vec<u8> {
+        self.body
+    }
+
     /// Consume the builder and produce a Frame
     pub fn build(self) -> Frame {
         Frame { body: self.body }
@@ -211,11 +216,11 @@ mod tests {
     use std::io::Cursor;
 
     #[test]
-    fn test_frame_roundtrip() {
-        let original = FrameBuilder::with_opcode(0x000A)
-            .write_u32(12345)
-            .write_cstring("hello")
-            .build();
+    fn test_frame_round_trip() {
+        let mut builder = FrameBuilder::with_opcode(0x000A);
+        builder.write_u32(12345);
+        builder.write_cstring("hello");
+        let original = builder.build();
 
         let mut buffer = Vec::new();
         original.write_to(&mut buffer).unwrap();
@@ -229,9 +234,9 @@ mod tests {
 
     #[test]
     fn test_fixed_string() {
-        let frame = FrameBuilder::new()
-            .write_fixed_string("test", 10)
-            .build();
+        let mut builder = FrameBuilder::new();
+        builder.write_fixed_string("test", 10);
+        let frame = builder.build();
 
         assert_eq!(frame.body.len(), 10);
         assert_eq!(&frame.body[..4], b"test");

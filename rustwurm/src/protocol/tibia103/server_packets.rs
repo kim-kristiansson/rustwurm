@@ -14,27 +14,27 @@ pub fn login_ok() -> Frame {
 
 /// Build a LoginFailed packet with reason
 pub fn login_failed(reason: &str) -> Frame {
-    FrameBuilder::with_opcode(ServerOpcode::LoginFailed as u16)
-        .write_cstring(reason)
-        .build()
+    let mut builder = FrameBuilder::with_opcode(ServerOpcode::LoginFailed as u16);
+    builder.write_cstring(reason);
+    builder.build()
 }
 
 /// Build an EquippedItem packet
 ///
 /// Informs the client about an item in an equipment slot
 pub fn equipped_item(item_id: u16, slot: EquipmentSlot) -> Frame {
-    FrameBuilder::with_opcode(ServerOpcode::EquippedItem as u16)
-        .write_u16(item_id)
-        .write_u8(slot as u8)
-        .build()
+    let mut builder = FrameBuilder::with_opcode(ServerOpcode::EquippedItem as u16);
+    builder.write_u16(item_id);
+    builder.write_u8(slot as u8);
+    builder.build()
 }
 
 /// Build a TextMessage packet
 pub fn text_message(message: &str, msg_type: MessageType) -> Frame {
-    FrameBuilder::with_opcode(ServerOpcode::TextMessage as u16)
-        .write_u8(msg_type as u8)
-        .write_cstring(message)
-        .build()
+    let mut builder = FrameBuilder::with_opcode(ServerOpcode::TextMessage as u16);
+    builder.write_u8(msg_type as u8);
+    builder.write_cstring(message);
+    builder.build()
 }
 
 /// Build a simple text message (info type)
@@ -44,23 +44,23 @@ pub fn info_message(message: &str) -> Frame {
 
 /// Build a PlayerStats packet
 pub fn player_stats(hp: u16, max_hp: u16, cap: u16, exp: u32, level: u16, mana: u16, max_mana: u16) -> Frame {
-    FrameBuilder::with_opcode(ServerOpcode::PlayerStats as u16)
-        .write_u16(hp)
-        .write_u16(max_hp)
-        .write_u16(cap)
-        .write_u32(exp)
-        .write_u16(level)
-        .write_u16(mana)
-        .write_u16(max_mana)
-        .build()
+    let mut builder = FrameBuilder::with_opcode(ServerOpcode::PlayerStats as u16);
+    builder.write_u16(hp);
+    builder.write_u16(max_hp);
+    builder.write_u16(cap);
+    builder.write_u32(exp);
+    builder.write_u16(level);
+    builder.write_u16(mana);
+    builder.write_u16(max_mana);
+    builder.build()
 }
 
 /// Build a CreatureHealth packet
 pub fn creature_health(creature_id: u32, health_percent: u8) -> Frame {
-    FrameBuilder::with_opcode(ServerOpcode::CreatureHealth as u16)
-        .write_u32(creature_id)
-        .write_u8(health_percent)
-        .build()
+    let mut builder = FrameBuilder::with_opcode(ServerOpcode::CreatureHealth as u16);
+    builder.write_u32(creature_id);
+    builder.write_u8(health_percent);
+    builder.build()
 }
 
 /// A position on the game map
