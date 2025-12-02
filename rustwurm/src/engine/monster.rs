@@ -33,4 +33,8 @@ impl Monster {
     pub fn is_dead(&self) -> bool {
         self.hp <= 0
     }
+
+    pub fn health_percent(&self) -> u8 {
+        ((self.hp as f32 / self.max_hp as f32) * 100.0) as u8
+    }
 }
