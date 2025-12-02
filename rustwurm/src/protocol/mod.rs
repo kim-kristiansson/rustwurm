@@ -1,8 +1,30 @@
-//! Protocol version implementations
+//! Protocol implementations
 //!
-//! Select protocol version at compile time via Cargo features:
-//! - `protocol-tibia103` (default)
-//! - `protocol-tibia300`
+//! This module provides protocol implementations for different Tibia versions.
+//! The protocol version is selected at compile time via Cargo features.
+//!
+//! # Available Protocols
+//!
+//! - `protocol-tibia103` (default) - Tibia 1.03 protocol
+//! - `protocol-tibia300` - Tibia 3.0 protocol (placeholder)
+//!
+//! # Usage
+//!
+//! The selected protocol is available as [`SelectedProtocol`]:
+//!
+//! ```ignore
+//! use rustwurm::protocol::{SelectedProtocol, Protocol};
+//!
+//! println!("Using protocol version: {}", SelectedProtocol::version());
+//! ```
+//!
+//! For direct access to a specific protocol version:
+//!
+//! ```ignore
+//! use rustwurm::protocol::tibia103;
+//!
+//! let codec = tibia103::Codec::new();
+//! ```
 
 mod traits;
 pub mod tibia103;
