@@ -1,7 +1,6 @@
 use crate::map::Map;
 use crate::entities::{Player, Monster, Npc};
-
-pub type PlayerId = u32;
+use crate::engine::{PlayerId};
 
 pub enum PlayerCommand {
     Move(PlayerId, i32, i32),
