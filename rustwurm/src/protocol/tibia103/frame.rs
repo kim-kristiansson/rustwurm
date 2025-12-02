@@ -1,13 +1,13 @@
 //! Packet framing for Tibia 1.03 protocol
 //!
 //! All packets are framed as: `[u16_le Length][Body...]`
-//! where Length = Body.len() + 2 (includes the length field itself)
+//! where Length = number of bytes after the length field (i.e., Body.len())
 
-use std::io::{self, Read, Write};
+use std::io::{Read, Write};
 use crate::error::{ProtocolError, ProtocolResult};
 
-/// Minimum packet length (just the length field + empty body)
-pub const MIN_PACKET_LENGTH: u16 = 2;
+/// Minimum packet body length (at least an opcode byte)
+pub const MIN_PACKET_LENGTH: u16 = 1;
 
 /// Maximum packet length (prevent memory exhaustion)
 pub const MAX_PACKET_LENGTH: u16 = 16384;
@@ -33,7 +33,7 @@ impl Frame {
     /// Read a framed packet from the stream
     ///
     /// Format: `[u16_le Length][Body...]`
-    /// Length includes itself, so body_len = Length - 2
+    /// Length is the number of bytes in Body
     pub fn read_from(reader: &mut dyn Read) -> ProtocolResult<Self> {
         // Read length field (2 bytes, little-endian)
         let mut len_buf = [0u8; 2];
@@ -55,8 +55,8 @@ impl Frame {
             )));
         }
 
-        // Body length is total length minus the 2-byte length field
-        let body_len = (length - 2) as usize;
+        // Body length equals the length field value
+        let body_len = length as usize;
 
         // Read body
         let mut body = vec![0u8; body_len];
@@ -71,8 +71,8 @@ impl Frame {
     ///
     /// Automatically prepends the length field
     pub fn write_to(&self, writer: &mut dyn Write) -> ProtocolResult<()> {
-        // Calculate total length (body + 2 for length field)
-        let length = (self.body.len() + 2) as u16;
+        // Length field = body length
+        let length = self.body.len() as u16;
 
         if length > MAX_PACKET_LENGTH {
             return Err(ProtocolError::InvalidPacket(format!(
@@ -96,24 +96,22 @@ impl Frame {
         &self.body
     }
 
-    /// Check if this frame has an opcode prefix
+    /// Check if this frame has at least one byte (opcode)
     pub fn has_opcode(&self) -> bool {
-        self.body.len() >= 2
+        !self.body.is_empty()
     }
 
-    /// Extract the opcode from the body (first 2 bytes)
-    pub fn opcode(&self) -> Option<u16> {
-        if self.body.len() >= 2 {
-            Some(u16::from_le_bytes([self.body[0], self.body[1]]))
-        } else {
-            None
-        }
+    /// Extract the opcode from the body (first byte)
+    ///
+    /// Tibia 1.03 uses single-byte opcodes
+    pub fn opcode(&self) -> Option<u8> {
+        self.body.first().copied()
     }
 
-    /// Get the payload (body without opcode)
+    /// Get the payload (body without the opcode byte)
     pub fn payload(&self) -> &[u8] {
-        if self.body.len() > 2 {
-            &self.body[2..]
+        if self.body.len() > 1 {
+            &self.body[1..]
         } else {
             &[]
         }
@@ -131,10 +129,10 @@ impl FrameBuilder {
         Self { body: Vec::new() }
     }
 
-    /// Start building a frame with the given opcode
-    pub fn with_opcode(opcode: u16) -> Self {
+    /// Start building a frame with the given opcode (single byte)
+    pub fn with_opcode(opcode: u8) -> Self {
         let mut builder = Self::new();
-        builder.body.extend_from_slice(&opcode.to_le_bytes());
+        builder.body.push(opcode);
         builder
     }
 
@@ -217,7 +215,7 @@ mod tests {
 
     #[test]
     fn test_frame_round_trip() {
-        let mut builder = FrameBuilder::with_opcode(0x000A);
+        let mut builder = FrameBuilder::with_opcode(0x0A);
         builder.write_u32(12345);
         builder.write_cstring("hello");
         let original = builder.build();
@@ -225,11 +223,15 @@ mod tests {
         let mut buffer = Vec::new();
         original.write_to(&mut buffer).unwrap();
 
+        // Verify the length field is correct
+        let length = u16::from_le_bytes([buffer[0], buffer[1]]);
+        assert_eq!(length as usize, original.body.len());
+
         let mut cursor = Cursor::new(buffer);
         let decoded = Frame::read_from(&mut cursor).unwrap();
 
         assert_eq!(original.body, decoded.body);
-        assert_eq!(decoded.opcode(), Some(0x000A));
+        assert_eq!(decoded.opcode(), Some(0x0A));
     }
 
     #[test]
@@ -241,5 +243,42 @@ mod tests {
         assert_eq!(frame.body.len(), 10);
         assert_eq!(&frame.body[..4], b"test");
         assert!(frame.body[4..].iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn test_single_byte_opcode_packet() {
+        // Movement packets are just a single opcode byte
+        let frame = FrameBuilder::with_opcode(0x65).build();
+
+        let mut buffer = Vec::new();
+        frame.write_to(&mut buffer).unwrap();
+
+        // Should be: 01 00 65 (length=1, opcode=0x65)
+        assert_eq!(buffer, vec![0x01, 0x00, 0x65]);
+
+        let mut cursor = Cursor::new(buffer);
+        let decoded = Frame::read_from(&mut cursor).unwrap();
+        assert_eq!(decoded.opcode(), Some(0x65));
+        assert_eq!(decoded.payload().len(), 0);
+    }
+
+    #[test]
+    fn test_packet_with_payload() {
+        let mut builder = FrameBuilder::with_opcode(0x96); // Say opcode
+        builder.write_u8(0x01); // speak type
+        builder.write_string("Hello");
+        let frame = builder.build();
+
+        let mut buffer = Vec::new();
+        frame.write_to(&mut buffer).unwrap();
+
+        // Length should equal body length
+        let length = u16::from_le_bytes([buffer[0], buffer[1]]);
+        assert_eq!(length as usize, frame.body.len());
+
+        let mut cursor = Cursor::new(buffer);
+        let decoded = Frame::read_from(&mut cursor).unwrap();
+        assert_eq!(decoded.opcode(), Some(0x96));
+        assert_eq!(decoded.payload().len(), frame.body.len() - 1);
     }
 }
