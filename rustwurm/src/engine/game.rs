@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::world::{Map, MapSpawns, Position};
 use super::player::{Player, PlayerId};
 use super::monster::{Monster, MonsterId};
-use super::npc::{Npc};
+use super::npc::Npc;
 use super::messages::{ClientMessage, ServerMessage};
 
 /// Commands that can be issued to the game engine (for local play)
@@ -101,6 +101,9 @@ impl Game {
             ClientMessage::Attack { player_id } => {
                 self.player_attack(player_id);
             }
+            ClientMessage::AttackTarget { player_id, target_id } => {
+                self.player_attack_target(player_id, target_id);
+            }
             ClientMessage::Login { name, .. } => {
                 let id = self.add_player(name);
                 return vec![ServerMessage::LoginOk { player_id: id }];
@@ -110,6 +113,15 @@ impl Game {
             }
             ClientMessage::Say { message, .. } => {
                 self.emit(GameEvent::Message { text: message });
+            }
+            ClientMessage::Turn { .. } => {
+                // TODO: Implement turning
+            }
+            ClientMessage::UseItem { .. } => {
+                // TODO: Implement item usage
+            }
+            ClientMessage::Cancel { .. } => {
+                // TODO: Implement action cancellation
             }
         }
 
@@ -146,7 +158,7 @@ impl Game {
     }
 
     fn player_attack(&mut self, player_id: PlayerId) {
-        // Get player position (immutable borrow ends here)
+        // Get player position
         let player_pos = match self.players.get(&player_id) {
             Some(p) => p.pos,
             None => return,
@@ -164,7 +176,32 @@ impl Game {
             return;
         };
 
-        // Apply damage and check if dead
+        self.attack_monster(player_id, monster_id);
+    }
+
+    fn player_attack_target(&mut self, player_id: PlayerId, target_id: u32) {
+        // Verify player exists and monster exists and is adjacent
+        let player_pos = match self.players.get(&player_id) {
+            Some(p) => p.pos,
+            None => return,
+        };
+
+        let monster = match self.monsters.get(&target_id) {
+            Some(m) if player_pos.is_adjacent(&m.pos) => m,
+            _ => {
+                self.emit(GameEvent::Message {
+                    text: "Target is out of range.".to_string()
+                });
+                return;
+            }
+        };
+
+        // Monster exists and is adjacent
+        drop(monster);
+        self.attack_monster(player_id, target_id);
+    }
+
+    fn attack_monster(&mut self, player_id: PlayerId, monster_id: MonsterId) {
         let damage = 10;
         let (is_dead, xp) = {
             let monster = self.monsters.get_mut(&monster_id).unwrap();
