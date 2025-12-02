@@ -3,4 +3,19 @@ name = "rustwurm"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["v1_03"]
+v1_03 = []
+
 [dependencies]
+thiserror = "2.0.17"
+
+[[bin]]
+name = "rustwurm"
+path = "src/main.rs"
+
+[[bin]]
+name = "server"
+path = "src/bin/server.rs"
+
+
