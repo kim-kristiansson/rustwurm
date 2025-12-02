@@ -7,15 +7,18 @@ use super::frame::{Frame, FrameBuilder};
 
 /// Build a LoginOk packet
 ///
-/// Sent when login credentials are accepted
-pub fn login_ok() -> Frame {
-    FrameBuilder::with_opcode(ServerOpcode::LoginOk as u16).build()
+/// Sent when login credentials are accepted.
+/// Contains the player's creature ID for identification.
+pub fn login_ok(player_id: u32) -> Frame {
+    let mut builder = FrameBuilder::with_opcode(ServerOpcode::LoginOk.as_u8());
+    builder.write_u32(player_id);
+    builder.build()
 }
 
 /// Build a LoginFailed packet with reason
 pub fn login_failed(reason: &str) -> Frame {
-    let mut builder = FrameBuilder::with_opcode(ServerOpcode::LoginFailed as u16);
-    builder.write_cstring(reason);
+    let mut builder = FrameBuilder::with_opcode(ServerOpcode::LoginFailed.as_u8());
+    builder.write_string(reason);
     builder.build()
 }
 
@@ -23,17 +26,17 @@ pub fn login_failed(reason: &str) -> Frame {
 ///
 /// Informs the client about an item in an equipment slot
 pub fn equipped_item(item_id: u16, slot: EquipmentSlot) -> Frame {
-    let mut builder = FrameBuilder::with_opcode(ServerOpcode::EquippedItem as u16);
-    builder.write_u16(item_id);
+    let mut builder = FrameBuilder::with_opcode(ServerOpcode::EquippedItem.as_u8());
     builder.write_u8(slot as u8);
+    builder.write_u16(item_id);
     builder.build()
 }
 
 /// Build a TextMessage packet
 pub fn text_message(message: &str, msg_type: MessageType) -> Frame {
-    let mut builder = FrameBuilder::with_opcode(ServerOpcode::TextMessage as u16);
+    let mut builder = FrameBuilder::with_opcode(ServerOpcode::TextMessage.as_u8());
     builder.write_u8(msg_type as u8);
-    builder.write_cstring(message);
+    builder.write_string(message);
     builder.build()
 }
 
@@ -44,7 +47,7 @@ pub fn info_message(message: &str) -> Frame {
 
 /// Build a PlayerStats packet
 pub fn player_stats(hp: u16, max_hp: u16, cap: u16, exp: u32, level: u16, mana: u16, max_mana: u16) -> Frame {
-    let mut builder = FrameBuilder::with_opcode(ServerOpcode::PlayerStats as u16);
+    let mut builder = FrameBuilder::with_opcode(ServerOpcode::PlayerStats.as_u8());
     builder.write_u16(hp);
     builder.write_u16(max_hp);
     builder.write_u16(cap);
@@ -57,7 +60,7 @@ pub fn player_stats(hp: u16, max_hp: u16, cap: u16, exp: u32, level: u16, mana: 
 
 /// Build a CreatureHealth packet
 pub fn creature_health(creature_id: u32, health_percent: u8) -> Frame {
-    let mut builder = FrameBuilder::with_opcode(ServerOpcode::CreatureHealth as u16);
+    let mut builder = FrameBuilder::with_opcode(ServerOpcode::CreatureHealth.as_u8());
     builder.write_u32(creature_id);
     builder.write_u8(health_percent);
     builder.build()
@@ -121,6 +124,24 @@ pub struct CreatureInfo {
     pub health_percent: u8,
     pub direction: u8,
     pub outfit: OutfitInfo,
+    pub light_intensity: u8,
+    pub light_color: u8,
+    pub speed: u16,
+}
+
+impl CreatureInfo {
+    pub fn new(id: u32, name: impl Into<String>) -> Self {
+        Self {
+            id,
+            name: name.into(),
+            health_percent: 100,
+            direction: 2, // South
+            outfit: OutfitInfo::default(),
+            light_intensity: 0,
+            light_color: 0,
+            speed: 220,
+        }
+    }
 }
 
 /// Creature outfit information
@@ -153,7 +174,7 @@ pub struct MapBuilder {
 impl MapBuilder {
     /// Start building a full map description packet
     pub fn new(center: Position) -> Self {
-        let mut builder = FrameBuilder::with_opcode(ServerOpcode::MapDescription as u16);
+        let mut builder = FrameBuilder::with_opcode(ServerOpcode::MapDescription.as_u8());
         center.write_to(&mut builder);
 
         Self { builder }
@@ -173,8 +194,8 @@ impl MapBuilder {
 
         // Write creature if present
         if let Some(ref creature) = tile.creature {
-            // Creature marker (0x0061 for known creature, 0x0062 for new)
-            self.builder.write_u16(0x0062); // New creature
+            // Creature marker (0x0062 for new creature)
+            self.builder.write_u16(0x0062);
             self.builder.write_u32(0); // Remove ID (0 for new)
             self.builder.write_u32(creature.id);
             self.builder.write_string(&creature.name);
@@ -185,6 +206,9 @@ impl MapBuilder {
             self.builder.write_u8(creature.outfit.body);
             self.builder.write_u8(creature.outfit.legs);
             self.builder.write_u8(creature.outfit.feet);
+            self.builder.write_u8(creature.light_intensity);
+            self.builder.write_u8(creature.light_color);
+            self.builder.write_u16(creature.speed);
         }
 
         // Tile terminator
@@ -228,16 +252,16 @@ where
 
 /// Build a creature move packet
 pub fn creature_move(creature_id: u32, from: Position, to: Position) -> Frame {
-    let mut builder = FrameBuilder::with_opcode(ServerOpcode::CreatureMove as u16);
+    let mut builder = FrameBuilder::with_opcode(ServerOpcode::CreatureMove.as_u8());
     from.write_to(&mut builder);
     builder.write_u8(0x01); // Stack position (simplified)
     to.write_to(&mut builder);
     builder.build()
 }
 
-/// Build a creature appear packet
+/// Build a "add thing to tile" packet for a creature appearing
 pub fn creature_appear(pos: Position, creature: &CreatureInfo) -> Frame {
-    let mut builder = FrameBuilder::with_opcode(ServerOpcode::CreatureAppear as u16);
+    let mut builder = FrameBuilder::with_opcode(ServerOpcode::TileAddThing.as_u8());
     pos.write_to(&mut builder);
 
     builder.write_u16(0x0062); // New creature marker
@@ -251,15 +275,45 @@ pub fn creature_appear(pos: Position, creature: &CreatureInfo) -> Frame {
     builder.write_u8(creature.outfit.body);
     builder.write_u8(creature.outfit.legs);
     builder.write_u8(creature.outfit.feet);
+    builder.write_u8(creature.light_intensity);
+    builder.write_u8(creature.light_color);
+    builder.write_u16(creature.speed);
 
     builder.build()
 }
 
-/// Build a creature disappear packet
-pub fn creature_disappear(pos: Position, stack_pos: u8) -> Frame {
-    let mut builder = FrameBuilder::with_opcode(ServerOpcode::CreatureDisappear as u16);
+/// Build a "remove thing from tile" packet
+pub fn tile_remove_thing(pos: Position, stack_pos: u8) -> Frame {
+    let mut builder = FrameBuilder::with_opcode(ServerOpcode::TileRemoveThing.as_u8());
     pos.write_to(&mut builder);
     builder.write_u8(stack_pos);
+    builder.build()
+}
+
+/// Build a magic effect packet
+pub fn magic_effect(pos: Position, effect_type: u8) -> Frame {
+    let mut builder = FrameBuilder::with_opcode(ServerOpcode::MagicEffect.as_u8());
+    pos.write_to(&mut builder);
+    builder.write_u8(effect_type);
+    builder.build()
+}
+
+/// Build a distance/projectile effect packet
+pub fn distance_effect(from: Position, to: Position, effect_type: u8) -> Frame {
+    let mut builder = FrameBuilder::with_opcode(ServerOpcode::DistanceEffect.as_u8());
+    from.write_to(&mut builder);
+    to.write_to(&mut builder);
+    builder.write_u8(effect_type);
+    builder.build()
+}
+
+/// Build a creature say packet
+pub fn creature_say(creature_id: u32, name: &str, speak_type: u8, message: &str) -> Frame {
+    let mut builder = FrameBuilder::with_opcode(ServerOpcode::CreatureSay.as_u8());
+    builder.write_u32(creature_id);
+    builder.write_string(name);
+    builder.write_u8(speak_type);
+    builder.write_string(message);
     builder.build()
 }
 
@@ -269,23 +323,42 @@ mod tests {
 
     #[test]
     fn test_login_ok() {
-        let frame = login_ok();
-        assert_eq!(frame.opcode(), Some(ServerOpcode::LoginOk as u16));
-        assert_eq!(frame.payload().len(), 0);
+        let frame = login_ok(12345);
+        assert_eq!(frame.opcode(), Some(ServerOpcode::LoginOk.as_u8()));
+        // Should have player ID in payload
+        assert_eq!(frame.payload().len(), 4);
     }
 
     #[test]
     fn test_text_message() {
         let frame = info_message("Hello, World!");
-        assert_eq!(frame.opcode(), Some(ServerOpcode::TextMessage as u16));
-        // Should contain message type + null-terminated string
+        assert_eq!(frame.opcode(), Some(ServerOpcode::TextMessage.as_u8()));
+        // Should contain message type + length-prefixed string
         assert!(frame.payload().len() > 14);
     }
 
     #[test]
     fn test_equipped_item() {
         let frame = equipped_item(0x013D, EquipmentSlot::Backpack);
-        assert_eq!(frame.opcode(), Some(ServerOpcode::EquippedItem as u16));
-        assert_eq!(frame.payload(), &[0x3D, 0x01, 0x03]);
+        assert_eq!(frame.opcode(), Some(ServerOpcode::EquippedItem.as_u8()));
+        // slot (1) + item_id (2) = 3 bytes payload
+        assert_eq!(frame.payload(), &[0x03, 0x3D, 0x01]);
+    }
+
+    #[test]
+    fn test_player_stats() {
+        let frame = player_stats(100, 100, 150, 0, 1, 50, 50);
+        assert_eq!(frame.opcode(), Some(ServerOpcode::PlayerStats.as_u8()));
+        // hp(2) + max_hp(2) + cap(2) + exp(4) + level(2) + mana(2) + max_mana(2) = 16 bytes
+        assert_eq!(frame.payload().len(), 16);
+    }
+
+    #[test]
+    fn test_creature_health() {
+        let frame = creature_health(0xABCD1234, 75);
+        assert_eq!(frame.opcode(), Some(ServerOpcode::CreatureHealth.as_u8()));
+        // creature_id (4) + health_percent (1) = 5 bytes
+        assert_eq!(frame.payload().len(), 5);
+        assert_eq!(frame.payload()[4], 75);
     }
 }
