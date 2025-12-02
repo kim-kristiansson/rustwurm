@@ -4,8 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["v1_03"]
-v1_03 = []
+default = ["protocol-tibia103"]
+protocol-tibia103 = []
+protocol-tibia300 = []
 
 [dependencies]
 thiserror = "2.0.17"
