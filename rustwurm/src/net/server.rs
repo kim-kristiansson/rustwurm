@@ -26,7 +26,7 @@ impl<P: Protocol> Server<P> {
         listener.set_nonblocking(true)?;
 
         println!(
-            "[SERVER] Listening on {} (protocol {})",
+            "[SERVER] Listening on {} (protocol v{})",
             addr,
             P::version()
         );
