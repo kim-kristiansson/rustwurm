@@ -17,7 +17,7 @@ pub struct Game {
 
 impl Game {
     pub fn new() -> Self {
-        const START_MAP: &str = include_str!("./maps/start.map");
+        const START_MAP: &str = include_str!("World/start.map");
 
         let (map, (px, py), monsters, npcs) = Map::from_ascii(START_MAP);
         let players = vec![Player::new(px, py)];
