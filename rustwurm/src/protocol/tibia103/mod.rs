@@ -69,7 +69,7 @@ pub mod codec;
 
 // Re-exports for convenient access
 pub use codec::Codec;
-pub use constants::{ClientOpcode, ServerOpcode, EquipmentSlot, MessageType, SpeakType, Direction};
+pub use constants::{ClientOpcode, LoginServerOpcode, GameServerOpcode, EquipmentSlot, MessageType, SpeakType, Direction};
 pub use frame::{Frame, FrameBuilder};
 pub use login::LoginCredentials;
 pub use server_packets::{Position, TileData, CreatureInfo, OutfitInfo};
