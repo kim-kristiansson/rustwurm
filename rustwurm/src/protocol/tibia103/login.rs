@@ -5,13 +5,11 @@
 //!
 //! # Format
 //! ```text
-//! GameLogin103Packet (67 bytes total):
-//!     Length   : u16_le = 67
-//!     Body (65 bytes):
-//!         Magic    : 5 bytes  = [00 00 01 01 00]
-//!         Protocol : u16_le   = 0x0067 (103)
-//!         Name     : 30 bytes ASCII, null-terminated, null-padded
-//!         Password : 30 bytes ASCII, null-terminated, null-padded
+//! GameLogin103Packet (65 bytes body):
+//!     Magic    : 5 bytes  = [00 00 01 01 00]
+//!     Protocol : u16_le   = 0x0067 (103)
+//!     Name     : 30 bytes ASCII, null-terminated, null-padded
+//!     Password : 30 bytes ASCII, null-terminated, null-padded
 //! ```
 
 use crate::error::{ProtocolError, ProtocolResult};
@@ -87,7 +85,7 @@ pub fn parse_login(frame: &Frame) -> ProtocolResult<LoginCredentials> {
     })
 }
 
-/// Build a login packet (for client implementation)
+/// Build a login packet (for client implementation or testing)
 pub fn build_login(name: &str, password: &str) -> Frame {
     let mut builder = FrameBuilder::new();
     builder.write_bytes(&LOGIN_MAGIC);
@@ -129,7 +127,22 @@ mod tests {
     #[test]
     fn test_non_login_packet() {
         // A normal opcode packet should not be detected as login
-        let frame = FrameBuilder::with_opcode(0x0065).build();
+        let frame = FrameBuilder::with_opcode(0x65).build();
         assert!(!is_login_packet(&frame));
+    }
+
+    #[test]
+    fn test_login_wire_format() {
+        let frame = build_login("Test", "Pass");
+
+        let mut buffer = Vec::new();
+        frame.write_to(&mut buffer).unwrap();
+
+        // Length field should equal body length (65 bytes)
+        let length = u16::from_le_bytes([buffer[0], buffer[1]]);
+        assert_eq!(length, 65);
+
+        // Total wire size = 2 (length) + 65 (body) = 67 bytes
+        assert_eq!(buffer.len(), 67);
     }
 }
