@@ -9,7 +9,7 @@ use crate::engine::{ClientMessage, ServerMessage, PlayerId};
 use crate::error::{ProtocolError, ProtocolResult};
 use crate::protocol::traits::{ClientCodec, ServerCodec, Protocol};
 
-use super::constants::{ClientOpcode, ServerOpcode, EquipmentSlot, MessageType};
+use super::constants::{ClientOpcode, EquipmentSlot, MessageType};
 use super::frame::Frame;
 use super::primitives::PayloadReader;
 use super::login::{is_login_packet, parse_login};
