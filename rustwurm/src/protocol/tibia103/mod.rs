@@ -32,13 +32,12 @@
 //! ```text
 //! [u16_le Length][Body...]
 //! ```
-//! where `Length = Body.len() + 2` (includes the length field itself).
+//! where `Length` is the number of bytes in `Body`.
 //!
 //! ## Login Packet
 //!
-//! The game login packet has a special fixed format (67 bytes total):
+//! The game login packet has a special fixed format (65 bytes body):
 //! ```text
-//! Length   : u16_le = 67
 //! Magic    : [00 00 01 01 00]
 //! Protocol : u16_le = 0x0067
 //! Name     : 30 bytes (null-padded ASCII)
@@ -49,16 +48,17 @@
 //!
 //! Standard game packets use opcode-based format:
 //! ```text
-//! [u16_le Length][u16_le Opcode][Payload...]
+//! [u16_le Length][u8 Opcode][Payload...]
 //! ```
+//! Note: Opcodes are single bytes in Tibia 1.03.
 //!
 //! ## Login Response Sequence
 //!
 //! On successful login, the server sends:
-//! 1. LoginOk (0x0001)
-//! 2. EquippedItem packets (0x0014) for each slot
-//! 3. MapDescription (0x000A) with surrounding tiles
-//! 4. StatusMessage (0x0068) welcome text
+//! 1. LoginOk (0x0A) with player's creature ID
+//! 2. EquippedItem packets (0x78) for each slot
+//! 3. MapDescription (0x64) with surrounding tiles
+//! 4. TextMessage (0xB4) welcome text
 
 pub mod constants;
 pub mod frame;
@@ -69,7 +69,7 @@ pub mod codec;
 
 // Re-exports for convenient access
 pub use codec::Codec;
-pub use constants::{ClientOpcode, ServerOpcode, EquipmentSlot, MessageType};
+pub use constants::{ClientOpcode, ServerOpcode, EquipmentSlot, MessageType, SpeakType, Direction};
 pub use frame::{Frame, FrameBuilder};
 pub use login::LoginCredentials;
 pub use server_packets::{Position, TileData, CreatureInfo, OutfitInfo};
