@@ -15,8 +15,8 @@ pub use traits::{ClientCodec, ServerCodec, Protocol};
 pub type SelectedProtocol = tibia103::Codec;
 
 #[cfg(all(feature = "protocol-tibia300", not(feature = "protocol-tibia103")))]
-pub type SelectedProtocol = v1_10::Codec;
+pub type SelectedProtocol = tibia300::Codec;
 
 // Fallback if no protocol feature selected (shouldn't happen with default)
-#[cfg(not(any(feature = "protocol-tibia103", feature = "protocol-v1_10")))]
+#[cfg(not(any(feature = "protocol-tibia103", feature = "protocol-tibia300")))]
 compile_error!("At least one protocol feature must be enabled");
