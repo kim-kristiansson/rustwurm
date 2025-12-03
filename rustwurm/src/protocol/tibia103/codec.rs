@@ -9,11 +9,11 @@ use crate::engine::{ClientMessage, ServerMessage, PlayerId};
 use crate::error::{ProtocolError, ProtocolResult};
 use crate::protocol::traits::{ClientCodec, ServerCodec, Protocol};
 
-use super::constants::{ClientOpcode, EquipmentSlot, MessageType};
+use super::constants::{ClientOpcode, EquipmentSlot, MessageType, MAP_WIDTH, MAP_HEIGHT};
 use super::frame::Frame;
 use super::primitives::PayloadReader;
 use super::login::{is_login_packet, parse_login};
-use super::server_packets;
+use super::server_packets::{self, Position};
 
 /// Connection state for tracking protocol flow
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,18 +174,6 @@ impl ClientCodec for Codec {
 
         match self.state {
             ConnectionState::AwaitingLogin => {
-                // Debug: dump raw packet for analysis
-                eprintln!("[DEBUG] Received packet in AwaitingLogin state:");
-                eprintln!("[DEBUG]   Body length: {} bytes", frame.body.len());
-                if frame.body.len() <= 100 {
-                    eprintln!("[DEBUG]   Body (hex): {:02X?}", &frame.body);
-                } else {
-                    eprintln!("[DEBUG]   First 50 bytes: {:02X?}", &frame.body[..50]);
-                }
-                if let Some(op) = frame.opcode() {
-                    eprintln!("[DEBUG]   Opcode byte: {:#04x}", op);
-                }
-
                 // Check if this is a login packet
                 if is_login_packet(&frame) {
                     let creds = parse_login(&frame)?;
@@ -202,12 +190,6 @@ impl ClientCodec for Codec {
                         password: creds.password,
                     }))
                 } else {
-                    eprintln!("[DEBUG] Login check failed:");
-                    eprintln!("[DEBUG]   Expected body length: 65, got: {}", frame.body.len());
-                    if frame.body.len() >= 5 {
-                        eprintln!("[DEBUG]   Expected magic: {:02X?}", super::constants::LOGIN_MAGIC);
-                        eprintln!("[DEBUG]   Got first 5 bytes: {:02X?}", &frame.body[..5.min(frame.body.len())]);
-                    }
                     Err(ProtocolError::InvalidPacket(
                         "Expected login packet".to_string()
                     ))
@@ -229,14 +211,57 @@ impl ServerCodec for Codec {
                 self.player_id = Some(*player_id);
                 self.state = ConnectionState::InGame;
 
-                // Send login response sequence
+                // The client expects a full initialization sequence:
+                // 1. InitGame (0x0A) - player ID, session flags, can report bugs
+                // 2. PlayerDataBasic (0x9F) - player ID and position
+                // 3. PlayerData (0xA0) - HP, mana, level, etc.
+                // 4. PlayerSkills (0xA1) - all skill levels
+                // 5. FullMap (0x64) - 18x14 tiles around player
+                // 6. Equipment (0x78) - items in slots
+                // 7. TextMessage (0xB4) - welcome message
+
+                // Default spawn position (center of a simple map)
+                let spawn_x: u16 = 100;
+                let spawn_y: u16 = 100;
+                let spawn_z: u8 = 7;
+
+                let center = Position::new(spawn_x, spawn_y, spawn_z);
+
                 vec![
-                    server_packets::login_ok(*player_id),
-                    // Example equipped items (backpack, sword, shield)
+                    // 1. InitGame - tells client their creature ID
+                    server_packets::init_game(*player_id),
+
+                    // 2. PlayerDataBasic - position info
+                    server_packets::player_data_basic(*player_id, spawn_x, spawn_y, spawn_z),
+
+                    // 3. PlayerData - stats
+                    server_packets::player_data(
+                        100,    // HP
+                        100,    // Max HP
+                        150,    // Capacity
+                        0,      // Experience
+                        1,      // Level
+                        50,     // Mana
+                        50,     // Max Mana
+                        0,      // Magic Level
+                        0,      // Magic Level %
+                    ),
+
+                    // 4. PlayerSkills
+                    server_packets::player_skills_default(),
+
+                    // 5. FullMap - send basic grass/wall map
+                    server_packets::full_map_simple(center, |x, y| {
+                        // Simple 20x20 room with walls around edges
+                        let in_bounds = x >= 90 && x <= 110 && y >= 90 && y <= 110;
+                        let is_wall = x == 90 || x == 110 || y == 90 || y == 110;
+                        in_bounds && !is_wall
+                    }),
+
+                    // 6. Equipment - give player a backpack
                     server_packets::equipped_item(0x013D, EquipmentSlot::Backpack),
-                    server_packets::equipped_item(0x015A, EquipmentSlot::RightHand),
-                    server_packets::equipped_item(0x025A, EquipmentSlot::LeftHand),
-                    // Welcome message
+
+                    // 7. Welcome message
                     server_packets::info_message("Welcome to Rustwurm!"),
                 ]
             }
@@ -250,7 +275,7 @@ impl ServerCodec for Codec {
             }
 
             ServerMessage::PlayerStats { hp, max_hp, level, xp, mana, max_mana, .. } => {
-                vec![server_packets::player_stats(
+                vec![server_packets::player_data(
                     *hp as u16,
                     *max_hp as u16,
                     100, // cap
@@ -258,6 +283,8 @@ impl ServerCodec for Codec {
                     *level as u16,
                     *mana as u16,
                     *max_mana as u16,
+                    0, // magic level
+                    0, // magic level %
                 )]
             }
 
@@ -334,8 +361,8 @@ mod tests {
 
         codec.write_message(&mut output, &ServerMessage::LoginOk { player_id: 1 }).unwrap();
 
-        // Should have multiple packets (login ok, equipped items, message)
-        assert!(output.len() > 10);
+        // Should have multiple packets now (init, data basic, data, skills, map, equip, msg)
+        assert!(output.len() > 100, "Login response should be substantial, got {} bytes", output.len());
 
         // Codec should be in game state now
         assert_eq!(codec.state, ConnectionState::InGame);
