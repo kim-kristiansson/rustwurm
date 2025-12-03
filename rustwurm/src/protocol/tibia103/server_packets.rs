@@ -2,68 +2,93 @@
 //!
 //! These functions construct the packets sent from server to client.
 
-use super::constants::{GameServerOpcode, EquipmentSlot, MessageType, TILE_TERMINATOR, MAP_TERMINATOR};
+use super::constants::{GameServerOpcode, EquipmentSlot, MessageType, TILE_TERMINATOR, MAP_WIDTH, MAP_HEIGHT};
 use super::frame::{Frame, FrameBuilder};
 
-/// Build a SelfAppear packet (login OK for game server)
+// =============================================================================
+// LOGIN / INITIALIZATION PACKETS
+// =============================================================================
+
+/// Build an InitGame packet (0x0A)
 ///
-/// Sent when login credentials are accepted.
-/// Contains the player's creature ID for identification.
-pub fn login_ok(player_id: u32) -> Frame {
+/// First packet sent after successful login.
+/// Structure: playerId (u32) + sessionFlags (u16) + canReportBugs (u8)
+pub fn init_game(player_id: u32) -> Frame {
     let mut builder = FrameBuilder::with_opcode(GameServerOpcode::SelfAppear.as_u8());
-    builder.write_u32(player_id);
+    builder.write_u32(player_id);      // Player's creature ID
+    builder.write_u16(0);              // Session flags (0 for 1.03)
+    builder.write_u8(0);               // Can report bugs (0 = no)
     builder.build()
 }
 
-/// Build a TextMessage packet for login failure
-/// (Game server doesn't have a dedicated "login failed" opcode - it uses text message)
-pub fn login_failed(reason: &str) -> Frame {
-    text_message(reason, MessageType::Warning)
-}
-
-/// Build an EquippedItem packet
+/// Build a PlayerDataBasic packet (0x9F)
 ///
-/// Informs the client about an item in an equipment slot
-pub fn equipped_item(item_id: u16, slot: EquipmentSlot) -> Frame {
-    let mut builder = FrameBuilder::with_opcode(GameServerOpcode::EquippedItem.as_u8());
-    builder.write_u8(slot as u8);
-    builder.write_u16(item_id);
+/// Tells the client the player's creature ID and starting position.
+pub fn player_data_basic(player_id: u32, x: u16, y: u16, z: u8) -> Frame {
+    let mut builder = FrameBuilder::with_opcode(0x9F);
+    builder.write_u32(player_id);
+    builder.write_u16(x);
+    builder.write_u16(y);
+    builder.write_u8(z);
     builder.build()
 }
 
-/// Build a TextMessage packet
-pub fn text_message(message: &str, msg_type: MessageType) -> Frame {
-    let mut builder = FrameBuilder::with_opcode(GameServerOpcode::TextMessage.as_u8());
-    builder.write_u8(msg_type as u8);
-    builder.write_string(message);
-    builder.build()
-}
-
-/// Build a simple text message (info type)
-pub fn info_message(message: &str) -> Frame {
-    text_message(message, MessageType::Info)
-}
-
-/// Build a PlayerStats packet
-pub fn player_stats(hp: u16, max_hp: u16, cap: u16, exp: u32, level: u16, mana: u16, max_mana: u16) -> Frame {
-    let mut builder = FrameBuilder::with_opcode(GameServerOpcode::PlayerStats.as_u8());
+/// Build a PlayerData packet (0xA0) - player stats
+///
+/// HP, MaxHP, Capacity, Experience, Level, Mana, MaxMana, MagicLevel, MagicLevelPercent
+pub fn player_data(
+    hp: u16,
+    max_hp: u16,
+    capacity: u16,
+    experience: u32,
+    level: u16,
+    mana: u16,
+    max_mana: u16,
+    magic_level: u8,
+    magic_level_percent: u8,
+) -> Frame {
+    let mut builder = FrameBuilder::with_opcode(GameServerOpcode::PlayerStats.as_u8()); // 0xA0
     builder.write_u16(hp);
     builder.write_u16(max_hp);
-    builder.write_u16(cap);
-    builder.write_u32(exp);
+    builder.write_u16(capacity);
+    builder.write_u32(experience);
     builder.write_u16(level);
     builder.write_u16(mana);
     builder.write_u16(max_mana);
+    builder.write_u8(magic_level);
+    builder.write_u8(magic_level_percent);
     builder.build()
 }
 
-/// Build a CreatureHealth packet
-pub fn creature_health(creature_id: u32, health_percent: u8) -> Frame {
-    let mut builder = FrameBuilder::with_opcode(GameServerOpcode::CreatureHealth.as_u8());
-    builder.write_u32(creature_id);
-    builder.write_u8(health_percent);
+/// Build a PlayerSkills packet (0xA1)
+///
+/// All skill levels and percentages to next level.
+/// Skills: Fist, Club, Sword, Axe, Distance, Shielding, Fishing
+pub fn player_skills(skills: &[(u8, u8); 7]) -> Frame {
+    let mut builder = FrameBuilder::with_opcode(GameServerOpcode::PlayerSkills.as_u8()); // 0xA1
+    for &(level, percent) in skills {
+        builder.write_u8(level);
+        builder.write_u8(percent);
+    }
     builder.build()
 }
+
+/// Build default player skills (all level 10, 0%)
+pub fn player_skills_default() -> Frame {
+    player_skills(&[
+        (10, 0), // Fist
+        (10, 0), // Club
+        (10, 0), // Sword
+        (10, 0), // Axe
+        (10, 0), // Distance
+        (10, 0), // Shielding
+        (10, 0), // Fishing
+    ])
+}
+
+// =============================================================================
+// MAP PACKETS
+// =============================================================================
 
 /// A position on the game map
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,7 +111,55 @@ impl Position {
     }
 }
 
-/// Represents a single tile for map encoding
+/// Build a FullMap packet (0x64)
+///
+/// Sends the 18x14 tile area around the player.
+/// This is the minimal version - just ground tiles, no creatures/items yet.
+pub fn full_map(center: Position, get_ground_tile: impl Fn(i32, i32) -> u16) -> Frame {
+    let mut builder = FrameBuilder::with_opcode(GameServerOpcode::MapDescription.as_u8()); // 0x64
+
+    // Write center position
+    center.write_to(&mut builder);
+
+    // Map dimensions for Tibia 1.03: 18 wide x 14 tall, single floor
+    let half_width = (MAP_WIDTH / 2) as i32;
+    let half_height = (MAP_HEIGHT / 2) as i32;
+
+    let start_x = center.x as i32 - half_width;
+    let start_y = center.y as i32 - half_height;
+
+    // Write tiles row by row (top to bottom, left to right)
+    for dy in 0..MAP_HEIGHT as i32 {
+        for dx in 0..MAP_WIDTH as i32 {
+            let world_x = start_x + dx;
+            let world_y = start_y + dy;
+
+            // Get ground tile ID
+            let ground_id = get_ground_tile(world_x, world_y);
+
+            // Write ground item
+            builder.write_u16(ground_id);
+
+            // End of tile stack (0xFF 0xFF means no more items on this tile)
+            builder.write_bytes(&TILE_TERMINATOR);
+        }
+    }
+
+    builder.build()
+}
+
+/// Build a simple FullMap with grass (item 100) and walls (item 101)
+pub fn full_map_simple(center: Position, is_walkable: impl Fn(i32, i32) -> bool) -> Frame {
+    full_map(center, |x, y| {
+        if is_walkable(x, y) {
+            100 // Grass tile
+        } else {
+            101 // Stone wall
+        }
+    })
+}
+
+/// Represents a single tile for map encoding (extended version)
 #[derive(Debug, Clone)]
 pub struct TileData {
     /// Ground item ID (0 for none)
@@ -165,91 +238,67 @@ impl Default for OutfitInfo {
     }
 }
 
-/// Builder for map description packets
-pub struct MapBuilder {
-    builder: FrameBuilder,
+// =============================================================================
+// INVENTORY / EQUIPMENT PACKETS
+// =============================================================================
+
+/// Build an EquippedItem packet (0x78)
+///
+/// Informs the client about an item in an equipment slot.
+pub fn equipped_item(item_id: u16, slot: EquipmentSlot) -> Frame {
+    let mut builder = FrameBuilder::with_opcode(GameServerOpcode::EquippedItem.as_u8());
+    builder.write_u8(slot as u8);
+    builder.write_u16(item_id);
+    builder.build()
 }
 
-impl MapBuilder {
-    /// Start building a full map description packet
-    pub fn new(center: Position) -> Self {
-        let mut builder = FrameBuilder::with_opcode(GameServerOpcode::MapDescription.as_u8());
-        center.write_to(&mut builder);
-
-        Self { builder }
-    }
-
-    /// Add a tile to the map data
-    pub fn add_tile(&mut self, tile: &TileData) {
-        // Write ground
-        if tile.ground != 0 {
-            self.builder.write_u16(tile.ground);
-        }
-
-        // Write stacked items
-        for &item_id in &tile.items {
-            self.builder.write_u16(item_id);
-        }
-
-        // Write creature if present
-        if let Some(ref creature) = tile.creature {
-            // Creature marker (0x0062 for new creature)
-            self.builder.write_u16(0x0062);
-            self.builder.write_u32(0); // Remove ID (0 for new)
-            self.builder.write_u32(creature.id);
-            self.builder.write_string(&creature.name);
-            self.builder.write_u8(creature.health_percent);
-            self.builder.write_u8(creature.direction);
-            self.builder.write_u16(creature.outfit.look_type);
-            self.builder.write_u8(creature.outfit.head);
-            self.builder.write_u8(creature.outfit.body);
-            self.builder.write_u8(creature.outfit.legs);
-            self.builder.write_u8(creature.outfit.feet);
-            self.builder.write_u8(creature.light_intensity);
-            self.builder.write_u8(creature.light_color);
-            self.builder.write_u16(creature.speed);
-        }
-
-        // Tile terminator
-        self.builder.write_bytes(&TILE_TERMINATOR);
-    }
-
-    /// Add an empty/skip tile
-    pub fn add_empty_tile(&mut self) {
-        self.builder.write_bytes(&TILE_TERMINATOR);
-    }
-
-    /// Finish building and return the frame
-    pub fn build(mut self) -> Frame {
-        // Map terminator
-        self.builder.write_bytes(&MAP_TERMINATOR);
-        self.builder.build()
-    }
+/// Build a ClearInventorySlot packet (0x79)
+pub fn clear_inventory_slot(slot: EquipmentSlot) -> Frame {
+    let mut builder = FrameBuilder::with_opcode(GameServerOpcode::EquippedItemClear.as_u8());
+    builder.write_u8(slot as u8);
+    builder.build()
 }
 
-/// Build a map description with a simple callback for each tile
-pub fn build_map_description<F>(center: Position, width: usize, height: usize, mut tile_fn: F) -> Frame
-where
-    F: FnMut(i32, i32) -> TileData,
-{
-    let mut map = MapBuilder::new(center);
+// =============================================================================
+// TEXT / CHAT PACKETS
+// =============================================================================
 
-    let start_x = center.x as i32 - (width as i32 / 2);
-    let start_y = center.y as i32 - (height as i32 / 2);
-
-    for y in 0..height {
-        for x in 0..width {
-            let world_x = start_x + x as i32;
-            let world_y = start_y + y as i32;
-            let tile = tile_fn(world_x, world_y);
-            map.add_tile(&tile);
-        }
-    }
-
-    map.build()
+/// Build a TextMessage packet (0xB4)
+pub fn text_message(message: &str, msg_type: MessageType) -> Frame {
+    let mut builder = FrameBuilder::with_opcode(GameServerOpcode::TextMessage.as_u8());
+    builder.write_u8(msg_type as u8);
+    builder.write_string(message);
+    builder.build()
 }
 
-/// Build a creature move packet
+/// Build a simple text message (info type)
+pub fn info_message(message: &str) -> Frame {
+    text_message(message, MessageType::Info)
+}
+
+/// Build a warning message (red text)
+pub fn warning_message(message: &str) -> Frame {
+    text_message(message, MessageType::Warning)
+}
+
+/// Build a TextMessage packet for login failure
+pub fn login_failed(reason: &str) -> Frame {
+    text_message(reason, MessageType::Warning)
+}
+
+// =============================================================================
+// CREATURE PACKETS
+// =============================================================================
+
+/// Build a CreatureHealth packet (0x8C)
+pub fn creature_health(creature_id: u32, health_percent: u8) -> Frame {
+    let mut builder = FrameBuilder::with_opcode(GameServerOpcode::CreatureHealth.as_u8());
+    builder.write_u32(creature_id);
+    builder.write_u8(health_percent);
+    builder.build()
+}
+
+/// Build a creature move packet (0x6D)
 pub fn creature_move(creature_id: u32, from: Position, to: Position) -> Frame {
     let mut builder = FrameBuilder::with_opcode(GameServerOpcode::CreatureMove.as_u8());
     from.write_to(&mut builder);
@@ -258,7 +307,7 @@ pub fn creature_move(creature_id: u32, from: Position, to: Position) -> Frame {
     builder.build()
 }
 
-/// Build a "add thing to tile" packet for a creature appearing
+/// Build a "add thing to tile" packet (0x6A) for a creature appearing
 pub fn creature_appear(pos: Position, creature: &CreatureInfo) -> Frame {
     let mut builder = FrameBuilder::with_opcode(GameServerOpcode::TileAddThing.as_u8());
     pos.write_to(&mut builder);
@@ -281,7 +330,7 @@ pub fn creature_appear(pos: Position, creature: &CreatureInfo) -> Frame {
     builder.build()
 }
 
-/// Build a "remove thing from tile" packet
+/// Build a "remove thing from tile" packet (0x6C)
 pub fn tile_remove_thing(pos: Position, stack_pos: u8) -> Frame {
     let mut builder = FrameBuilder::with_opcode(GameServerOpcode::TileRemoveThing.as_u8());
     pos.write_to(&mut builder);
@@ -289,7 +338,11 @@ pub fn tile_remove_thing(pos: Position, stack_pos: u8) -> Frame {
     builder.build()
 }
 
-/// Build a magic effect packet
+// =============================================================================
+// EFFECT PACKETS
+// =============================================================================
+
+/// Build a magic effect packet (0x83)
 pub fn magic_effect(pos: Position, effect_type: u8) -> Frame {
     let mut builder = FrameBuilder::with_opcode(GameServerOpcode::MagicEffect.as_u8());
     pos.write_to(&mut builder);
@@ -297,7 +350,7 @@ pub fn magic_effect(pos: Position, effect_type: u8) -> Frame {
     builder.build()
 }
 
-/// Build a distance/projectile effect packet
+/// Build a distance/projectile effect packet (0x84)
 pub fn distance_effect(from: Position, to: Position, effect_type: u8) -> Frame {
     let mut builder = FrameBuilder::with_opcode(GameServerOpcode::DistanceEffect.as_u8());
     from.write_to(&mut builder);
@@ -306,7 +359,7 @@ pub fn distance_effect(from: Position, to: Position, effect_type: u8) -> Frame {
     builder.build()
 }
 
-/// Build a creature say packet
+/// Build a creature say packet (0xAA)
 pub fn creature_say(creature_id: u32, name: &str, speak_type: u8, message: &str) -> Frame {
     let mut builder = FrameBuilder::with_opcode(GameServerOpcode::CreatureSay.as_u8());
     builder.write_u32(creature_id);
@@ -316,16 +369,45 @@ pub fn creature_say(creature_id: u32, name: &str, speak_type: u8, message: &str)
     builder.build()
 }
 
+// =============================================================================
+// LEGACY ALIASES (for compatibility)
+// =============================================================================
+
+/// Legacy alias for player_data
+pub fn player_stats(hp: u16, max_hp: u16, cap: u16, exp: u32, level: u16, mana: u16, max_mana: u16) -> Frame {
+    player_data(hp, max_hp, cap, exp, level, mana, max_mana, 0, 0)
+}
+
+// =============================================================================
+// TESTS
+// =============================================================================
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_login_ok() {
-        let frame = login_ok(12345);
+    fn test_init_game() {
+        let frame = init_game(12345);
         assert_eq!(frame.opcode(), Some(GameServerOpcode::SelfAppear.as_u8()));
-        // Should have player ID in payload
-        assert_eq!(frame.payload().len(), 4);
+        // player_id (4) + sessionFlags (2) + canReportBugs (1) = 7 bytes payload
+        assert_eq!(frame.payload().len(), 7);
+    }
+
+    #[test]
+    fn test_player_data_basic() {
+        let frame = player_data_basic(12345, 100, 200, 7);
+        assert_eq!(frame.opcode(), Some(0x9F));
+        // player_id (4) + x (2) + y (2) + z (1) = 9 bytes payload
+        assert_eq!(frame.payload().len(), 9);
+    }
+
+    #[test]
+    fn test_player_skills() {
+        let frame = player_skills_default();
+        assert_eq!(frame.opcode(), Some(0xA1));
+        // 7 skills * 2 bytes each = 14 bytes payload
+        assert_eq!(frame.payload().len(), 14);
     }
 
     #[test]
@@ -342,14 +424,6 @@ mod tests {
         assert_eq!(frame.opcode(), Some(GameServerOpcode::EquippedItem.as_u8()));
         // slot (1) + item_id (2) = 3 bytes payload
         assert_eq!(frame.payload(), &[0x03, 0x3D, 0x01]);
-    }
-
-    #[test]
-    fn test_player_stats() {
-        let frame = player_stats(100, 100, 150, 0, 1, 50, 50);
-        assert_eq!(frame.opcode(), Some(GameServerOpcode::PlayerStats.as_u8()));
-        // hp(2) + max_hp(2) + cap(2) + exp(4) + level(2) + mana(2) + max_mana(2) = 16 bytes
-        assert_eq!(frame.payload().len(), 16);
     }
 
     #[test]
