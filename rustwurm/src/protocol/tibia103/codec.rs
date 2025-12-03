@@ -174,6 +174,18 @@ impl ClientCodec for Codec {
 
         match self.state {
             ConnectionState::AwaitingLogin => {
+                // Debug: dump raw packet for analysis
+                eprintln!("[DEBUG] Received packet in AwaitingLogin state:");
+                eprintln!("[DEBUG]   Body length: {} bytes", frame.body.len());
+                if frame.body.len() <= 100 {
+                    eprintln!("[DEBUG]   Body (hex): {:02X?}", &frame.body);
+                } else {
+                    eprintln!("[DEBUG]   First 50 bytes: {:02X?}", &frame.body[..50]);
+                }
+                if let Some(op) = frame.opcode() {
+                    eprintln!("[DEBUG]   Opcode byte: {:#04x}", op);
+                }
+
                 // Check if this is a login packet
                 if is_login_packet(&frame) {
                     let creds = parse_login(&frame)?;
@@ -190,6 +202,12 @@ impl ClientCodec for Codec {
                         password: creds.password,
                     }))
                 } else {
+                    eprintln!("[DEBUG] Login check failed:");
+                    eprintln!("[DEBUG]   Expected body length: 65, got: {}", frame.body.len());
+                    if frame.body.len() >= 5 {
+                        eprintln!("[DEBUG]   Expected magic: {:02X?}", super::constants::LOGIN_MAGIC);
+                        eprintln!("[DEBUG]   Got first 5 bytes: {:02X?}", &frame.body[..5.min(frame.body.len())]);
+                    }
                     Err(ProtocolError::InvalidPacket(
                         "Expected login packet".to_string()
                     ))

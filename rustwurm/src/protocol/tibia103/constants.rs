@@ -10,8 +10,8 @@ pub const LOGIN_MAGIC: [u8; 5] = [0x00, 0x00, 0x01, 0x01, 0x00];
 pub const PROTOCOL_VERSION: u16 = 0x0067;
 
 /// Fixed sizes for login packet fields
-pub const LOGIN_PACKET_LENGTH: u16 = 65;
-pub const LOGIN_BODY_LENGTH: usize = 65;
+pub const LOGIN_PACKET_LENGTH: u16 = 67;
+pub const LOGIN_BODY_LENGTH: usize = 67;
 pub const LOGIN_NAME_LENGTH: usize = 30;
 pub const LOGIN_PASSWORD_LENGTH: usize = 30;
 
