@@ -5,10 +5,10 @@
 //! # Differences from 1.03
 //!
 //! The 3.0 protocol includes:
-//! - XTEA encryption
-//! - Different packet structure
-//! - Account-based login flow
+//! - No 4-zero-byte server packet prefix
+//! - Different packet structure (slot before item ID)
 //! - Extended creature/item data
+//! - Player ID in login response
 
 use std::io::{Read, Write};
 use crate::engine::{ClientMessage, ServerMessage};

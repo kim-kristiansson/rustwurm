@@ -1,11 +1,9 @@
-mod game;
-mod messages;
-mod monster;
-mod player;
-mod npc;
+//! Game engine module
+//!
+//! Contains the core game logic, player management, and message types.
 
-pub use game::{Game, GameCommand, GameEvent};
+mod messages;
+mod player;
+
 pub use messages::{ClientMessage, ServerMessage, Direction, TileInfo};
-pub use monster::{Monster, MonsterId};
 pub use player::{Player, PlayerId};
-pub use npc::Npc;

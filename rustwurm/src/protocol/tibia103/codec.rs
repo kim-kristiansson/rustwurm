@@ -2,18 +2,28 @@
 //!
 //! This codec translates between wire format and engine messages.
 //! It handles the special login packet format and standard opcode-based packets.
+//!
+//! ## Client → Server Opcodes (Section 6.1)
+//!
+//! - 0x05: Walk (direction in payload)
+//! - 0x06: AutoWalk (x, y in payload)
+//! - 0x09: Chat (length-prefixed message)
+//! - 0x0A: ChangeDirection (direction in payload)
+//! - 0x14: Push (move item)
+//! - 0x34: SetTarget (creature ID)
+//! - 0xFF: Logout
 
 use std::io::{Read, Write};
 
-use crate::engine::{ClientMessage, ServerMessage, PlayerId};
+use crate::engine::{ClientMessage, ServerMessage, PlayerId, Direction as EngineDirection};
 use crate::error::{ProtocolError, ProtocolResult};
 use crate::protocol::traits::{ClientCodec, ServerCodec, Protocol};
 
-use super::constants::{ClientOpcode, EquipmentSlot, MessageType, MAP_WIDTH, MAP_HEIGHT};
-use super::frame::Frame;
+use super::constants::{ClientOpcode, EquipmentSlot, Direction, ChatType};
+use super::frame::{Frame, ServerFrame};
 use super::primitives::PayloadReader;
 use super::login::{is_login_packet, parse_login};
-use super::server_packets::{self, Position};
+use super::server_packets;
 
 /// Connection state for tracking protocol flow
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,97 +78,144 @@ impl Codec {
         };
 
         let msg = match opcode {
-            // Movement opcodes (no payload)
-            ClientOpcode::MoveNorth => ClientMessage::Move { player_id, dx: 0, dy: -1 },
-            ClientOpcode::MoveEast => ClientMessage::Move { player_id, dx: 1, dy: 0 },
-            ClientOpcode::MoveSouth => ClientMessage::Move { player_id, dx: 0, dy: 1 },
-            ClientOpcode::MoveWest => ClientMessage::Move { player_id, dx: -1, dy: 0 },
-
-            // Diagonal movement
-            ClientOpcode::MoveNorthEast => ClientMessage::Move { player_id, dx: 1, dy: -1 },
-            ClientOpcode::MoveSouthEast => ClientMessage::Move { player_id, dx: 1, dy: 1 },
-            ClientOpcode::MoveSouthWest => ClientMessage::Move { player_id, dx: -1, dy: 1 },
-            ClientOpcode::MoveNorthWest => ClientMessage::Move { player_id, dx: -1, dy: -1 },
-
-            // Stop/cancel
-            ClientOpcode::StopWalk | ClientOpcode::CancelAction => {
-                ClientMessage::Cancel { player_id }
+            // Walk (0x05) - single direction byte
+            ClientOpcode::Walk => {
+                let dir_byte = reader.read_u8()?;
+                let Some(dir) = Direction::from_u8(dir_byte) else {
+                    return Err(ProtocolError::InvalidPacket(format!(
+                        "Invalid walk direction: {:#04x}", dir_byte
+                    )));
+                };
+                let (dx, dy) = dir.to_delta();
+                ClientMessage::Move { player_id, dx, dy }
             }
 
-            // Turn commands (facing direction, no movement)
-            ClientOpcode::TurnNorth => {
-                ClientMessage::Turn { player_id, direction: crate::engine::Direction::North }
-            }
-            ClientOpcode::TurnEast => {
-                ClientMessage::Turn { player_id, direction: crate::engine::Direction::East }
-            }
-            ClientOpcode::TurnSouth => {
-                ClientMessage::Turn { player_id, direction: crate::engine::Direction::South }
-            }
-            ClientOpcode::TurnWest => {
-                ClientMessage::Turn { player_id, direction: crate::engine::Direction::West }
+            // AutoWalk (0x06) - x, y destination
+            ClientOpcode::AutoWalk => {
+                let _x = reader.read_u8()?;
+                let _y = reader.read_u8()?;
+                // TODO: Implement auto-walk pathfinding
+                // For now, just ignore
+                return Ok(None);
             }
 
-            // Say something
-            ClientOpcode::Say => {
-                let _speak_type = reader.read_u8()?;
+            // LookAt (0x07) - x, y position
+            ClientOpcode::LookAt => {
+                let _x = reader.read_u8()?;
+                let _y = reader.read_u8()?;
+                // TODO: Implement look at
+                return Ok(None);
+            }
+
+            // Chat (0x09) - length-prefixed message
+            ClientOpcode::Chat => {
                 let message = reader.read_string()?;
                 ClientMessage::Say { player_id, message }
             }
 
-            // Attack
-            ClientOpcode::Attack => {
+            // ChangeDirection (0x0A) - direction byte
+            ClientOpcode::ChangeDirection => {
+                let dir_byte = reader.read_u8()?;
+                let Some(dir) = Direction::from_u8(dir_byte) else {
+                    return Err(ProtocolError::InvalidPacket(format!(
+                        "Invalid turn direction: {:#04x}", dir_byte
+                    )));
+                };
+                let engine_dir = match dir {
+                    Direction::North => EngineDirection::North,
+                    Direction::East => EngineDirection::East,
+                    Direction::South => EngineDirection::South,
+                    Direction::West => EngineDirection::West,
+                };
+                ClientMessage::Turn { player_id, direction: engine_dir }
+            }
+
+            // Push (0x14) - move item
+            ClientOpcode::Push => {
+                let _from_x = reader.read_u8()?;
+                let _from_y = reader.read_u8()?;
+                let _item_id = reader.read_u16()?;
+                let _stack_pos = reader.read_u8()?;
+                let _to_x = reader.read_u8()?;
+                let _to_y = reader.read_u8()?;
+                // TODO: Implement item movement
+                return Ok(None);
+            }
+
+            // UseItem (0x1E)
+            ClientOpcode::UseItem => {
+                let _use_type = reader.read_u8()?;
+                let _x = reader.read_u8()?;
+                let _y = reader.read_u8()?;
+                let item_id = reader.read_u16()?;
+                let _stack_pos = reader.read_u8()?;
+                let _unknown = reader.read_u8()?;
+                ClientMessage::UseItem { player_id, item_id }
+            }
+
+            // CloseContainer (0x1F)
+            ClientOpcode::CloseContainer => {
+                let _local_id = reader.read_u8()?;
+                // TODO: Implement container close
+                return Ok(None);
+            }
+
+            // ChangeMode (0x32) - fight mode and stance
+            ClientOpcode::ChangeMode => {
+                let _fight_mode = reader.read_u8()?;
+                let _stance = reader.read_u8()?;
+                // TODO: Implement fight mode change
+                return Ok(None);
+            }
+
+            // ExitBattle (0x33) - stop attacking
+            ClientOpcode::ExitBattle => {
+                ClientMessage::Cancel { player_id }
+            }
+
+            // SetTarget (0x34) - attack target
+            ClientOpcode::SetTarget => {
                 let target_id = reader.read_u32()?;
                 if target_id == 0 {
-                    // Stop attacking
                     ClientMessage::Cancel { player_id }
                 } else {
                     ClientMessage::AttackTarget { player_id, target_id }
                 }
             }
 
-            // Follow
-            ClientOpcode::Follow => {
-                let _target_id = reader.read_u32()?;
-                // TODO: Add Follow message to engine
+            // Echo (0xC8) - keep-alive
+            ClientOpcode::Echo => {
+                // Just acknowledge, no action needed
                 return Ok(None);
             }
 
-            // Logout
+            // Logout (0xFF)
             ClientOpcode::Logout => {
                 ClientMessage::Logout { player_id }
             }
 
-            // Auto-walk (path)
-            ClientOpcode::AutoWalk => {
-                // TODO: Parse path and implement auto-walk
+            // Other opcodes not yet implemented
+            ClientOpcode::UserList |
+            ClientOpcode::PlayerInfo |
+            ClientOpcode::Comment |
+            ClientOpcode::RequestChangeData |
+            ClientOpcode::SetData |
+            ClientOpcode::SetText |
+            ClientOpcode::HouseText => {
+                eprintln!("[v1.03] Unimplemented opcode: {:?}", opcode);
                 return Ok(None);
-            }
-
-            // Item interactions
-            ClientOpcode::MoveItem | ClientOpcode::UseItem |
-            ClientOpcode::UseItemWith | ClientOpcode::UseItemOnCreature |
-            ClientOpcode::RotateItem => {
-                // TODO: Parse item location and implement
-                return Ok(None);
-            }
-
-            // Channel operations
-            ClientOpcode::RequestChannels | ClientOpcode::OpenChannel |
-            ClientOpcode::CloseChannel => {
-                // TODO: Implement channels
-                return Ok(None);
-            }
-
-            // Login shouldn't appear here (handled in AwaitingLogin state)
-            ClientOpcode::GameLogin => {
-                return Err(ProtocolError::InvalidPacket(
-                    "Unexpected login packet in game state".to_string()
-                ));
             }
         };
 
         Ok(Some(msg))
+    }
+
+    /// Write multiple server frames to the writer
+    fn write_frames(&self, writer: &mut dyn Write, frames: Vec<ServerFrame>) -> ProtocolResult<()> {
+        for frame in frames {
+            frame.write_to(writer)?;
+        }
+        Ok(())
     }
 }
 
@@ -174,6 +231,18 @@ impl ClientCodec for Codec {
 
         match self.state {
             ConnectionState::AwaitingLogin => {
+                // Debug: dump raw packet for analysis
+                eprintln!("[DEBUG] Received packet in AwaitingLogin state:");
+                eprintln!("[DEBUG]   Body length: {} bytes", frame.body.len());
+                if frame.body.len() <= 100 {
+                    eprintln!("[DEBUG]   Body (hex): {:02X?}", &frame.body);
+                } else {
+                    eprintln!("[DEBUG]   First 50 bytes: {:02X?}", &frame.body[..50]);
+                }
+                if let Some(op) = frame.opcode() {
+                    eprintln!("[DEBUG]   First byte: {:#04x}", op);
+                }
+
                 // Check if this is a login packet
                 if is_login_packet(&frame) {
                     let creds = parse_login(&frame)?;
@@ -190,6 +259,12 @@ impl ClientCodec for Codec {
                         password: creds.password,
                     }))
                 } else {
+                    eprintln!("[DEBUG] Login check failed:");
+                    eprintln!("[DEBUG]   Expected body length: 67, got: {}", frame.body.len());
+                    if frame.body.len() >= 5 {
+                        eprintln!("[DEBUG]   Expected magic: {:02X?}", super::constants::LOGIN_MAGIC);
+                        eprintln!("[DEBUG]   Got first 5 bytes: {:02X?}", &frame.body[..5.min(frame.body.len())]);
+                    }
                     Err(ProtocolError::InvalidPacket(
                         "Expected login packet".to_string()
                     ))
@@ -211,85 +286,32 @@ impl ServerCodec for Codec {
                 self.player_id = Some(*player_id);
                 self.state = ConnectionState::InGame;
 
-                // The client expects a full initialization sequence:
-                // 1. InitGame (0x0A) - player ID, session flags, can report bugs
-                // 2. PlayerDataBasic (0x9F) - player ID and position
-                // 3. PlayerData (0xA0) - HP, mana, level, etc.
-                // 4. PlayerSkills (0xA1) - all skill levels
-                // 5. FullMap (0x64) - 18x14 tiles around player
-                // 6. Equipment (0x78) - items in slots
-                // 7. TextMessage (0xB4) - welcome message
-
-                // Default spawn position (center of a simple map)
-                let spawn_x: u16 = 100;
-                let spawn_y: u16 = 100;
-                let spawn_z: u8 = 7;
-
-                let center = Position::new(spawn_x, spawn_y, spawn_z);
-
+                // Send login response sequence:
+                // 1. Login confirmation (0x01)
+                // 2. Equipped items (0x14)
+                // 3. Info message (0x04)
                 vec![
-                    // 1. InitGame - tells client their creature ID
-                    server_packets::init_game(*player_id),
-
-                    // 2. PlayerDataBasic - position info
-                    server_packets::player_data_basic(*player_id, spawn_x, spawn_y, spawn_z),
-
-                    // 3. PlayerData - stats
-                    server_packets::player_data(
-                        100,    // HP
-                        100,    // Max HP
-                        150,    // Capacity
-                        0,      // Experience
-                        1,      // Level
-                        50,     // Mana
-                        50,     // Max Mana
-                        0,      // Magic Level
-                        0,      // Magic Level %
-                    ),
-
-                    // 4. PlayerSkills
-                    server_packets::player_skills_default(),
-
-                    // 5. FullMap - send basic grass/wall map
-                    server_packets::full_map_simple(center, |x, y| {
-                        // Simple 20x20 room with walls around edges
-                        let in_bounds = x >= 90 && x <= 110 && y >= 90 && y <= 110;
-                        let is_wall = x == 90 || x == 110 || y == 90 || y == 110;
-                        in_bounds && !is_wall
-                    }),
-
-                    // 6. Equipment - give player a backpack
+                    server_packets::login_ok(),
+                    // Example equipped items (backpack, sword, shield)
                     server_packets::equipped_item(0x013D, EquipmentSlot::Backpack),
-
-                    // 7. Welcome message
+                    server_packets::equipped_item(0x015A, EquipmentSlot::RightHand),
+                    server_packets::equipped_item(0x025A, EquipmentSlot::LeftHand),
+                    // Welcome message
                     server_packets::info_message("Welcome to Rustwurm!"),
                 ]
             }
 
             ServerMessage::LoginFailed { reason } => {
-                vec![server_packets::login_failed(reason)]
+                vec![server_packets::error_message(reason)]
             }
 
             ServerMessage::TextMessage { message } => {
                 vec![server_packets::info_message(message)]
             }
 
-            ServerMessage::PlayerStats { hp, max_hp, level, xp, mana, max_mana, .. } => {
-                vec![server_packets::player_data(
-                    *hp as u16,
-                    *max_hp as u16,
-                    100, // cap
-                    *xp as u32,
-                    *level as u16,
-                    *mana as u16,
-                    *max_mana as u16,
-                    0, // magic level
-                    0, // magic level %
-                )]
-            }
-
-            ServerMessage::CreatureHealth { creature_id, health_percent } => {
-                vec![server_packets::creature_health(*creature_id, *health_percent)]
+            ServerMessage::CreatureSay { name, message, .. } => {
+                // Use chat message with position 0,0 for now
+                vec![server_packets::chat_message(0, 0, ChatType::Normal, name, message)]
             }
 
             ServerMessage::PlayerMoved { x, y, .. } => {
@@ -299,24 +321,38 @@ impl ServerCodec for Codec {
             }
 
             ServerMessage::PlayerDied { .. } => {
-                vec![server_packets::text_message(
-                    "You are dead.",
-                    MessageType::Warning,
-                )]
+                vec![server_packets::status_message("You are dead.")]
             }
 
-            _ => {
-                eprintln!("[v1.03] Unimplemented server message: {:?}", msg);
+            ServerMessage::PlayerStats { .. } => {
+                // Tibia 1.03 doesn't have the standard stats packet
+                // Stats were displayed differently in this version
+                eprintln!("[v1.03] PlayerStats not supported in this protocol version");
+                vec![]
+            }
+
+            ServerMessage::CreatureHealth { .. } => {
+                // Tibia 1.03 didn't have creature health bars
+                eprintln!("[v1.03] CreatureHealth not supported in this protocol version");
+                vec![]
+            }
+
+            ServerMessage::MapDescription { .. } => {
+                // TODO: Implement map description
+                eprintln!("[v1.03] MapDescription not yet implemented");
+                vec![]
+            }
+
+            ServerMessage::CreatureMoved { .. } |
+            ServerMessage::CreatureAppear { .. } |
+            ServerMessage::CreatureDisappear { .. } => {
+                // TODO: Implement creature updates
+                eprintln!("[v1.03] Creature updates not yet implemented");
                 vec![]
             }
         };
 
-        // Write all frames
-        for frame in frames {
-            frame.write_to(writer)?;
-        }
-
-        Ok(())
+        self.write_frames(writer, frames)
     }
 }
 
@@ -361,27 +397,34 @@ mod tests {
 
         codec.write_message(&mut output, &ServerMessage::LoginOk { player_id: 1 }).unwrap();
 
-        // Should have multiple packets now (init, data basic, data, skills, map, equip, msg)
-        assert!(output.len() > 100, "Login response should be substantial, got {} bytes", output.len());
+        // Should have multiple packets (login ok, equipped items, message)
+        assert!(output.len() > 10);
 
         // Codec should be in game state now
         assert_eq!(codec.state, ConnectionState::InGame);
         assert_eq!(codec.player_id, Some(1));
+
+        // Verify the first packet is login (0x01)
+        // Skip length (2 bytes), 4 zeros, then opcode
+        assert_eq!(output[6], 0x01);
     }
 
     #[test]
-    fn test_movement_packet() {
+    fn test_walk_packet() {
         let mut codec = Codec::new();
         codec.player_id = Some(42);
         codec.state = ConnectionState::InGame;
 
-        // Build a move north packet (opcode 0x65, no payload)
-        let frame = FrameBuilder::with_opcode(0x65).build();
+        // Build a walk packet: opcode 0x05, direction 0x00 (North)
+        let frame = FrameBuilder::with_opcode(0x05)
+            .u8(0x00) // Direction: North
+            .build();
+
         let mut data = Vec::new();
         frame.write_to(&mut data).unwrap();
 
-        // Should be: 01 00 65 (length=1, opcode)
-        assert_eq!(data, vec![0x01, 0x00, 0x65]);
+        // Should be: 02 00 05 00 (length=2, opcode=0x05, direction=0x00)
+        assert_eq!(data, vec![0x02, 0x00, 0x05, 0x00]);
 
         let mut cursor = Cursor::new(data);
         let msg = codec.read_message(&mut cursor).unwrap();
@@ -390,16 +433,48 @@ mod tests {
     }
 
     #[test]
-    fn test_say_packet() {
+    fn test_walk_directions() {
         let mut codec = Codec::new();
         codec.player_id = Some(1);
         codec.state = ConnectionState::InGame;
 
-        // Build a say packet: opcode 0x96, speak_type 0x01, string "Hi"
-        let mut builder = FrameBuilder::with_opcode(0x96);
-        builder.write_u8(0x01); // speak type = say
-        builder.write_string("Hi");
-        let frame = builder.build();
+        let test_cases = [
+            (0x00, 0, -1),  // North
+            (0x01, 1, 0),   // East
+            (0x02, 0, 1),   // South
+            (0x03, -1, 0),  // West
+        ];
+
+        for (dir_byte, expected_dx, expected_dy) in test_cases {
+            let frame = FrameBuilder::with_opcode(0x05)
+                .u8(dir_byte)
+                .build();
+
+            let mut data = Vec::new();
+            frame.write_to(&mut data).unwrap();
+
+            let mut cursor = Cursor::new(data);
+            let msg = codec.read_message(&mut cursor).unwrap();
+
+            if let Some(ClientMessage::Move { dx, dy, .. }) = msg {
+                assert_eq!((dx, dy), (expected_dx, expected_dy),
+                           "Direction {:#04x} failed", dir_byte);
+            } else {
+                panic!("Expected Move message for direction {:#04x}", dir_byte);
+            }
+        }
+    }
+
+    #[test]
+    fn test_chat_packet() {
+        let mut codec = Codec::new();
+        codec.player_id = Some(1);
+        codec.state = ConnectionState::InGame;
+
+        // Build a chat packet: opcode 0x09, length-prefixed message
+        let frame = FrameBuilder::with_opcode(0x09)
+            .string("Hello, World!")
+            .build();
 
         let mut data = Vec::new();
         frame.write_to(&mut data).unwrap();
@@ -409,9 +484,95 @@ mod tests {
 
         if let Some(ClientMessage::Say { player_id, message }) = msg {
             assert_eq!(player_id, 1);
-            assert_eq!(message, "Hi");
+            assert_eq!(message, "Hello, World!");
         } else {
             panic!("Expected Say message");
         }
+    }
+
+    #[test]
+    fn test_turn_packet() {
+        let mut codec = Codec::new();
+        codec.player_id = Some(1);
+        codec.state = ConnectionState::InGame;
+
+        // Build a turn packet: opcode 0x0A, direction 0x01 (East)
+        let frame = FrameBuilder::with_opcode(0x0A)
+            .u8(0x01)
+            .build();
+
+        let mut data = Vec::new();
+        frame.write_to(&mut data).unwrap();
+
+        let mut cursor = Cursor::new(data);
+        let msg = codec.read_message(&mut cursor).unwrap();
+
+        if let Some(ClientMessage::Turn { direction, .. }) = msg {
+            assert_eq!(direction, EngineDirection::East);
+        } else {
+            panic!("Expected Turn message");
+        }
+    }
+
+    #[test]
+    fn test_logout_packet() {
+        let mut codec = Codec::new();
+        codec.player_id = Some(1);
+        codec.state = ConnectionState::InGame;
+
+        // Build a logout packet: opcode 0xFF
+        let frame = FrameBuilder::with_opcode(0xFF).build();
+
+        let mut data = Vec::new();
+        frame.write_to(&mut data).unwrap();
+
+        let mut cursor = Cursor::new(data);
+        let msg = codec.read_message(&mut cursor).unwrap();
+
+        assert!(matches!(msg, Some(ClientMessage::Logout { player_id: 1 })));
+    }
+
+    #[test]
+    fn test_attack_packet() {
+        let mut codec = Codec::new();
+        codec.player_id = Some(1);
+        codec.state = ConnectionState::InGame;
+
+        // Build an attack packet: opcode 0x34, target ID
+        let frame = FrameBuilder::with_opcode(0x34)
+            .u32(12345)
+            .build();
+
+        let mut data = Vec::new();
+        frame.write_to(&mut data).unwrap();
+
+        let mut cursor = Cursor::new(data);
+        let msg = codec.read_message(&mut cursor).unwrap();
+
+        if let Some(ClientMessage::AttackTarget { target_id, .. }) = msg {
+            assert_eq!(target_id, 12345);
+        } else {
+            panic!("Expected AttackTarget message");
+        }
+    }
+
+    #[test]
+    fn test_stop_attack_packet() {
+        let mut codec = Codec::new();
+        codec.player_id = Some(1);
+        codec.state = ConnectionState::InGame;
+
+        // SetTarget with ID 0 means stop attacking
+        let frame = FrameBuilder::with_opcode(0x34)
+            .u32(0)
+            .build();
+
+        let mut data = Vec::new();
+        frame.write_to(&mut data).unwrap();
+
+        let mut cursor = Cursor::new(data);
+        let msg = codec.read_message(&mut cursor).unwrap();
+
+        assert!(matches!(msg, Some(ClientMessage::Cancel { .. })));
     }
 }

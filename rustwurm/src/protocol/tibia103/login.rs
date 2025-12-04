@@ -3,14 +3,19 @@
 //! The game login packet has a unique fixed format that differs from
 //! the standard opcode-based packets.
 //!
-//! # Format
+//! # Format (Section 4.2)
+//!
 //! ```text
-//! GameLogin103Packet (65 bytes body):
-//!     Magic    : 5 bytes  = [00 00 01 01 00]
-//!     Protocol : u16_le   = 0x0067 (103)
-//!     Name     : 30 bytes ASCII, null-terminated, null-padded
-//!     Password : 30 bytes ASCII, null-terminated, null-padded
+//! GameLogin103Packet (67 bytes body):
+//!     Offset  Size  Field
+//!     ------  ----  -----
+//!     0       5     Magic bytes: [00 00 01 01 00]
+//!     5       2     Protocol version: u16_le = 0x0067 (103)
+//!     7       30    Character name (fixed-length, null-padded)
+//!     37      30    Password (fixed-length, null-padded)
 //! ```
+//!
+//! Wire format: `[u16_le Length = 67][Body...]`
 
 use crate::error::{ProtocolError, ProtocolResult};
 use super::constants::{
@@ -36,8 +41,12 @@ impl LoginCredentials {
 }
 
 /// Determine if a frame is a login packet by checking its structure
+///
+/// Login packets are identified by:
+/// 1. Body length of exactly 67 bytes
+/// 2. Starting with the magic bytes [00 00 01 01 00]
 pub fn is_login_packet(frame: &Frame) -> bool {
-    // Login packet body is exactly 65 bytes
+    // Login packet body is exactly 67 bytes
     if frame.body.len() != LOGIN_BODY_LENGTH {
         return false;
     }
@@ -86,13 +95,15 @@ pub fn parse_login(frame: &Frame) -> ProtocolResult<LoginCredentials> {
 }
 
 /// Build a login packet (for client implementation or testing)
+///
+/// Creates a login packet with the standard Tibia 1.03 format.
 pub fn build_login(name: &str, password: &str) -> Frame {
-    let mut builder = FrameBuilder::new();
-    builder.write_bytes(&LOGIN_MAGIC);
-    builder.write_u16(PROTOCOL_VERSION);
-    builder.write_fixed_string(name, LOGIN_NAME_LENGTH);
-    builder.write_fixed_string(password, LOGIN_PASSWORD_LENGTH);
-    builder.build()
+    FrameBuilder::new()
+        .bytes(&LOGIN_MAGIC)
+        .u16(PROTOCOL_VERSION)
+        .fixed_string(name, LOGIN_NAME_LENGTH)
+        .fixed_string(password, LOGIN_PASSWORD_LENGTH)
+        .build()
 }
 
 #[cfg(test)]
@@ -114,6 +125,31 @@ mod tests {
     }
 
     #[test]
+    fn test_login_body_structure() {
+        let frame = build_login("Test", "Pass");
+
+        // Verify the structure
+        assert_eq!(frame.body.len(), 67);
+
+        // Magic bytes at offset 0-4
+        assert_eq!(&frame.body[0..5], &LOGIN_MAGIC);
+
+        // Protocol version at offset 5-6 (little-endian 0x0067 = 103)
+        assert_eq!(frame.body[5], 0x67);
+        assert_eq!(frame.body[6], 0x00);
+
+        // Name starts at offset 7
+        assert_eq!(&frame.body[7..11], b"Test");
+        // Padding should be zeros
+        assert!(frame.body[11..37].iter().all(|&b| b == 0));
+
+        // Password starts at offset 37
+        assert_eq!(&frame.body[37..41], b"Pass");
+        // Padding should be zeros
+        assert!(frame.body[41..67].iter().all(|&b| b == 0));
+    }
+
+    #[test]
     fn test_login_truncation() {
         // Names/passwords longer than 30 chars should be truncated
         let long_name = "a".repeat(50);
@@ -127,8 +163,33 @@ mod tests {
     #[test]
     fn test_non_login_packet() {
         // A normal opcode packet should not be detected as login
-        let frame = FrameBuilder::with_opcode(0x65).build();
+        let frame = FrameBuilder::with_opcode(0x05).build();
         assert!(!is_login_packet(&frame));
+    }
+
+    #[test]
+    fn test_wrong_magic() {
+        // Create a 67-byte packet with wrong magic
+        let frame = FrameBuilder::new()
+            .bytes(&[0x00, 0x00, 0x00, 0x00, 0x00]) // Wrong magic
+            .u16(PROTOCOL_VERSION)
+            .fixed_string("Test", LOGIN_NAME_LENGTH)
+            .fixed_string("Pass", LOGIN_PASSWORD_LENGTH)
+            .build();
+
+        assert!(!is_login_packet(&frame)); // Should fail magic check
+    }
+
+    #[test]
+    fn test_wrong_size() {
+        // Create a packet with wrong size
+        let frame = FrameBuilder::new()
+            .bytes(&LOGIN_MAGIC)
+            .u16(PROTOCOL_VERSION)
+            .bytes(b"short") // Too short
+            .build();
+
+        assert!(!is_login_packet(&frame)); // Should fail size check
     }
 
     #[test]
@@ -138,11 +199,30 @@ mod tests {
         let mut buffer = Vec::new();
         frame.write_to(&mut buffer).unwrap();
 
-        // Length field should equal body length (65 bytes)
+        // Length field should equal body length (67 bytes)
         let length = u16::from_le_bytes([buffer[0], buffer[1]]);
-        assert_eq!(length, 65);
+        assert_eq!(length, 67);
 
-        // Total wire size = 2 (length) + 65 (body) = 67 bytes
-        assert_eq!(buffer.len(), 67);
+        // Total wire size = 2 (length) + 67 (body) = 69 bytes
+        assert_eq!(buffer.len(), 69);
+    }
+
+    #[test]
+    fn test_special_characters_in_name() {
+        // Test with various ASCII characters
+        let frame = build_login("Player_123", "p@$$w0rd!");
+        let creds = parse_login(&frame).unwrap();
+
+        assert_eq!(creds.name, "Player_123");
+        assert_eq!(creds.password, "p@$$w0rd!");
+    }
+
+    #[test]
+    fn test_empty_credentials() {
+        let frame = build_login("", "");
+        let creds = parse_login(&frame).unwrap();
+
+        assert_eq!(creds.name, "");
+        assert_eq!(creds.password, "");
     }
 }

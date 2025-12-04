@@ -1,7 +1,9 @@
 [package]
 name = "rustwurm"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+description = "A Tibia 1.03 server implementation"
+license = "MIT"
 
 [features]
 default = ["protocol-tibia103"]
@@ -9,14 +11,6 @@ protocol-tibia103 = []
 protocol-tibia300 = []
 
 [dependencies]
-thiserror = "2.0.17"
+thiserror = "1.0"
 
-[[bin]]
-name = "rustwurm"
-path = "src/main.rs"
-
-[[bin]]
-name = "server"
-path = "src/bin/server.rs"
-
-
+[dev-dependencies]
