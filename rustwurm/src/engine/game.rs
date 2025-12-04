@@ -74,7 +74,7 @@ impl Game {
         self.next_player_id += 1;
 
         // Find spawn position (simple: use map center or first walkable)
-        let spawn_pos = Position::new(
+        let spawn_pos = Position::ground(
             (self.map.width / 2) as i32,
             (self.map.height / 2) as i32,
         );

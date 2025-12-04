@@ -1,11 +1,14 @@
 //! Local single-player mode
 
 use std::io::{self, Write};
-use rustwurm::{Game, GameCommand, GameEvent};
+use rustwurm::engine::{Game, GameCommand, GameEvent};
+use rustwurm::world::{Position, Tile};
 
 fn main() {
     let mut game = Game::new();
     let player_id = game.add_player("LocalPlayer".to_string());
+
+    // ... rest of main.rs stays the same
 
     println!("=== Rustwurm ===");
     println!("Use WASD to move, K to attack, Q to quit.\n");
@@ -79,7 +82,7 @@ fn draw_game(game: &Game, player_id: u32) {
                 'N'
             } else {
                 use rustwurm::world::Position;
-                match map.get_tile(Position::new(x, y)) {
+                match map.get_tile(Position::ground(x, y)) {
                     Some(rustwurm::world::Tile::Floor) => '.',
                     Some(rustwurm::world::Tile::Wall) => '#',
                     None => '?',

@@ -1,38 +1,6 @@
 use super::tile::Tile;
+use super::{Position};
 
-/// Represents a position on the map
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Position {
-    pub x: i32,
-    pub y: i32,
-}
-
-impl Position {
-    pub fn new(x: i32, y: i32) -> Self {
-        Self { x, y }
-    }
-
-    pub fn offset(&self, dx: i32, dy: i32) -> Self {
-        Self {
-            x: self.x + dx,
-            y: self.y + dy,
-        }
-    }
-
-    pub fn distance_squared(&self, other: &Position) -> i32 {
-        let dx = self.x - other.x;
-        let dy = self.y - other.y;
-        dx * dx + dy * dy
-    }
-
-    pub fn is_adjacent(&self, other: &Position) -> bool {
-        let dx = (self.x - other.x).abs();
-        let dy = (self.y - other.y).abs();
-        dx <= 1 && dy <= 1 && (dx + dy) > 0
-    }
-}
-
-/// Spawn data parsed from map files
 #[derive(Debug)]
 pub struct MapSpawns {
     pub player_start: Position,
@@ -97,14 +65,14 @@ impl Map {
         let width = lines.first().map(|l| l.chars().count()).unwrap_or(0);
 
         let mut tiles = vec![Tile::Floor; width * height];
-        let mut player_start = Position::new(1, 1);
+        let mut player_start = Position::ground(1, 1);
         let mut monsters = Vec::new();
         let mut npcs = Vec::new();
 
         for (y, line) in lines.iter().enumerate() {
             for (x, ch) in line.chars().enumerate() {
                 let idx = y * width + x;
-                let pos = Position::new(x as i32, y as i32);
+                let pos = Position::ground(x as i32, y as i32);
 
                 match ch {
                     '#' => tiles[idx] = Tile::Wall,
